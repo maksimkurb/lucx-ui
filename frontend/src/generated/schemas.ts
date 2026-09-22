@@ -327,8 +327,11 @@ export const SCHEMAS: Record<string, unknown> = {
       "subHideSettings": {
         "type": "boolean"
       },
-      "subIncyEnableRouting": {
+      "subIncyConfig": {
         "description": "END LUCX-HOOK",
+        "type": "string"
+      },
+      "subIncyEnableRouting": {
         "type": "boolean"
       },
       "subIncyRoutingRules": {
@@ -607,6 +610,7 @@ export const SCHEMAS: Record<string, unknown> = {
       "subHappTunMode",
       "subHappTunType",
       "subHideSettings",
+      "subIncyConfig",
       "subIncyEnableRouting",
       "subIncyRoutingRules",
       "subInfoNodeEnable",
@@ -1015,8 +1019,11 @@ export const SCHEMAS: Record<string, unknown> = {
       "subHideSettings": {
         "type": "boolean"
       },
-      "subIncyEnableRouting": {
+      "subIncyConfig": {
         "description": "END LUCX-HOOK",
+        "type": "string"
+      },
+      "subIncyEnableRouting": {
         "type": "boolean"
       },
       "subIncyRoutingRules": {
@@ -1303,6 +1310,7 @@ export const SCHEMAS: Record<string, unknown> = {
       "subHappTunMode",
       "subHappTunType",
       "subHideSettings",
+      "subIncyConfig",
       "subIncyEnableRouting",
       "subIncyRoutingRules",
       "subInfoNodeEnable",
