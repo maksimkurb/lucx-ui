@@ -353,8 +353,11 @@
           "subHideSettings": {
             "type": "boolean"
           },
-          "subIncyEnableRouting": {
+          "subIncyConfig": {
             "description": "END LUCX-HOOK",
+            "type": "string"
+          },
+          "subIncyEnableRouting": {
             "type": "boolean"
           },
           "subIncyRoutingRules": {
@@ -633,6 +636,7 @@
           "subHappTunMode",
           "subHappTunType",
           "subHideSettings",
+          "subIncyConfig",
           "subIncyEnableRouting",
           "subIncyRoutingRules",
           "subInfoNodeEnable",
@@ -1041,8 +1045,11 @@
           "subHideSettings": {
             "type": "boolean"
           },
-          "subIncyEnableRouting": {
+          "subIncyConfig": {
             "description": "END LUCX-HOOK",
+            "type": "string"
+          },
+          "subIncyEnableRouting": {
             "type": "boolean"
           },
           "subIncyRoutingRules": {
@@ -1329,6 +1336,7 @@
           "subHappTunMode",
           "subHappTunType",
           "subHideSettings",
+          "subIncyConfig",
           "subIncyEnableRouting",
           "subIncyRoutingRules",
           "subInfoNodeEnable",
