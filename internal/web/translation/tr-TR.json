@@ -1585,7 +1585,7 @@
       "subIncyResolve": "Sunucu adresini DoH ile çöz",
       "subIncyResolveDomain": "DoH uç noktası",
       "subIncyResolveIp": "DoH önyükleme IP'si",
-      "subIncyBanner": "Banner",
+      "subIncyBanner": "Afiş",
       "subIncyBannerText": "Banner metni",
       "subIncyBannerButtonText": "Banner düğmesi metni",
       "subIncyBannerButtonUrl": "Banner düğmesi URL'si",
