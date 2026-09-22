@@ -1583,7 +1583,7 @@
       "subIncyNoisePacket": "Payload шума",
       "subIncyNoiseDelay": "Задержка шума",
       "subIncyResolve": "Резолв адреса сервера через DoH",
-      "subIncyResolveDomain": "DoH endpoint",
+      "subIncyResolveDomain": "Адрес DoH",
       "subIncyResolveIp": "Bootstrap IP DoH",
       "subIncyBanner": "Баннер",
       "subIncyBannerText": "Текст баннера",
