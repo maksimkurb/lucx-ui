@@ -1585,7 +1585,7 @@
       "subIncyResolve": "Resolver o endereço do servidor via DoH",
       "subIncyResolveDomain": "Endpoint DoH",
       "subIncyResolveIp": "IP de bootstrap do DoH",
-      "subIncyBanner": "Banner",
+      "subIncyBanner": "Faixa",
       "subIncyBannerText": "Texto do banner",
       "subIncyBannerButtonText": "Texto do botão do banner",
       "subIncyBannerButtonUrl": "URL do botão do banner",
