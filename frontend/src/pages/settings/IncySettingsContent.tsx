@@ -76,8 +76,8 @@ export default function IncySettingsContent({
 
   const triStateOptions = [
     { value: '', label: t('pages.settings.subIncyUnchanged') },
-    { value: 'on', label: t('pages.settings.enabled') },
-    { value: 'off', label: t('pages.settings.disabled') },
+    { value: 'on', label: t('enabled') },
+    { value: 'off', label: t('disabled') },
   ];
 
   return (
@@ -214,7 +214,7 @@ export default function IncySettingsContent({
                     onChange={(perAppMode) => updateConfig({ perAppMode })}
                     options={[
                       { value: '', label: t('pages.settings.subIncyUnchanged') },
-                      { value: 'off', label: t('pages.settings.disabled') },
+                      { value: 'off', label: t('disabled') },
                       { value: 'proxy', label: t('pages.settings.subIncyPerAppProxy') },
                       { value: 'bypass', label: t('pages.settings.subIncyPerAppBypass') },
                     ]}
