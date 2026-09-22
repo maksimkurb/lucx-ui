@@ -1585,7 +1585,7 @@
       "subIncyResolve": "Phân giải địa chỉ máy chủ qua DoH",
       "subIncyResolveDomain": "Endpoint DoH",
       "subIncyResolveIp": "IP bootstrap DoH",
-      "subIncyBanner": "Banner",
+      "subIncyBanner": "Biểu ngữ",
       "subIncyBannerText": "Nội dung banner",
       "subIncyBannerButtonText": "Nội dung nút banner",
       "subIncyBannerButtonUrl": "URL nút banner",
