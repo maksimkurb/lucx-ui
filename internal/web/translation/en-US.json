@@ -802,7 +802,7 @@
         "naiveRouteOutboundHint": "Optional. Force Naive traffic out through this outbound (or balancer). Leave empty to let your routing rules decide.",
         "naiveAuthServiceHint": "Optional master basic_auth. Clients on this inbound get personal credentials automatically.",
         "naiveDomainHint": "Public hostname for NaiveProxy (SNI / ACME). Required for client links.",
-        "naiveMaskHint": "Do not hide this inbound behind 443 masking. Clients connect to this port directly.",
+        "naiveMaskHint": "Masking keeps Naive on its own port. If it is on 443, Apply moves it. Refresh the client subscription after Apply.",
         "naiveUseRaw": "Raw Caddyfile",
         "naiveProbeResistance": "Probe resistance",
         "naiveEnableH3": "HTTP/3 (QUIC)",
@@ -1014,7 +1014,10 @@
         "live": "Live",
         "address": "Address",
         "version": "Version",
-        "savedDisabled": "After import the old Docker/awg3 manager is stopped and the inbound is enabled. Stacks that share 10.8.1.0/24 need different subnets before more than one kernel iface is up."
+        "savedDisabled": "After import the old Docker/awg3 manager is stopped and the inbound is enabled. Stacks that share 10.8.1.0/24 need different subnets before more than one kernel iface is up.",
+        "delete": "Delete selected",
+        "deleteConfirm": "Stop and remove the selected installs from this host? Panel inbounds are not created or deleted.",
+        "deleted": "Removed {count}."
       },
       "protocolNames": {
         "awg": "AmneziaWG (kernel)",
@@ -2720,7 +2723,7 @@
     },
     "masking": {
       "title": "443 SNI masking",
-      "help": "Public IPv4:443 splits by SNI. Edit SNI in the table — that is the inbound's SNI (Cover hostname / REALITY serverNames / TLS serverName). One SNI per inbound. Apply writes it and builds the mux. Off until Apply.",
+      "help": "Public IPv4:443 splits by SNI. REALITY serverNames and dest are not changed. WS / HTTPUpgrade can sit inside the Cover site on a path. UDP stays on its own port. Off until Apply.",
       "publicHost": "Public hostname",
       "noGateway": "No gateway inbound",
       "createFirst": "Create it here (disabled, port 443). Then pick which inbounds go behind 443.",
@@ -2733,7 +2736,7 @@
       "classCaddy": "Site (Cover / Naive)",
       "classSkip": "Cannot mux",
       "listen": "Listen",
-      "stealHint": "Failed REALITY handshake → Cover site",
+      "stealHint": "Failed REALITY handshake → Cover or WEB proxy site. On automatically when either is selected.",
       "sniClash": "Two inbounds share SNI {sni}. Each protocol needs its own.",
       "confirmApply": "Hide {n} inbound(s) behind 443 on {ip}. Revert restores listen.",
       "confirmOk": "Apply",
@@ -2741,7 +2744,9 @@
       "noBindIP": "Could not read NIC IPv4; Apply will remap ports like before.",
       "ufw": "Close extra ports (UFW)",
       "ufwHint": "Allows SSH, panel, 80, 443, and inbounds left public. Denies the rest. Revert disables UFW only if we turned it on.",
-      "naiveHint": "Leave Naive on its own port. Do not tick it for 443 — NekoBox / naive-client times out behind the mask. Unchecked, UFW keeps that port open. If it is already masked, Revert and leave it off.",
+      "naiveHint": "Naive is not in the table above — it stays on its own port below. To put it on 443, tick Hide behind the site and Apply. Then refresh the subscription.",
+      "naiveOwnPort": "Own port {port}. Do not move it to 443 by hand.",
+      "hideNaive": "Hide behind {host}:443",
       "ufwOn": "UFW default-deny is on",
       "confirmApplyUfw": "Hide {n} inbound(s) behind 443 on {ip} and enable UFW default-deny. Revert restores listen (and disables UFW if we enabled it).",
       "hidePanel": "Hide panel on 443",
@@ -2752,7 +2757,9 @@
       "apply": "Apply selected",
       "revert": "Revert",
       "applied": "Mask applied",
-      "reverted": "Mask reverted"
+      "reverted": "Mask reverted",
+      "insideSite": "Inside the site",
+      "insideHint": "WS / HTTPUpgrade share the Cover hostname. A browser on / sees the site. Refresh the subscription after Apply."
     },
     "tunnels": {
       "title": "Tunnel tools",

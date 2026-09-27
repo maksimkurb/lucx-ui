@@ -802,7 +802,7 @@
         "naiveRouteOutboundHint": "Необязательно. Принудительно направить трафик Naive через этот outbound (или balancer). Оставьте пустым, чтобы решали ваши правила маршрутизации Xray.",
         "naiveAuthServiceHint": "Опциональный master basic_auth. Клиенты inbound получают личные креды автоматически.",
         "naiveDomainHint": "Публичный hostname NaiveProxy (SNI / ACME). Нужен для клиентских ссылок.",
-        "naiveMaskHint": "Не прячь этот inbound за маску 443. Клиенты ходят на этот порт напрямую.",
+        "naiveMaskHint": "Маска оставляет Naive на своём порту. Если он на 443, Apply перенесёт его. После Apply обновите подписку в клиенте.",
         "naiveUseRaw": "Raw Caddyfile",
         "naiveProbeResistance": "Probe resistance",
         "naiveEnableH3": "HTTP/3 (QUIC)",
@@ -1014,7 +1014,10 @@
         "live": "Live",
         "address": "Адрес",
         "version": "Версия",
-        "savedDisabled": "После импорта старый Docker/awg3 останавливается, инбаунд включается. Если стеки делят 10.8.1.0/24 — смените subnet, прежде чем поднимать больше одного интерфейса на ядре."
+        "savedDisabled": "После импорта старый Docker/awg3 останавливается, инбаунд включается. Если стеки делят 10.8.1.0/24 — смените subnet, прежде чем поднимать больше одного интерфейса на ядре.",
+        "delete": "Удалить выбранные",
+        "deleteConfirm": "Остановить и удалить выбранные установки с этого хоста? Инбаунды панели не создаются и не удаляются.",
+        "deleted": "Удалено: {count}."
       },
       "protocolNames": {
         "awg": "AmneziaWG (kernel)",
@@ -2720,7 +2723,7 @@
     },
     "masking": {
           "title": "Маскировка 443 по SNI",
-          "help": "Публичный IPv4:443 режет по SNI. SNI в таблице — это SNI inbound (хост Cover / serverNames REALITY / TLS). Один SNI на inbound. Apply пишет его и собирает mux. Пока не Apply — выкл.",
+          "help": "Публичный IPv4:443 режет по SNI. serverNames и dest REALITY не меняются. WS / HTTPUpgrade можно посадить внутрь Cover на путь. UDP остаётся на своём порту. Пока не Apply — выкл.",
           "publicHost": "Публичный хост",
           "noGateway": "Нет inbound gateway",
           "createFirst": "Создастся здесь (выкл., порт 443). Потом отметь, что прятать за 443.",
@@ -2733,7 +2736,7 @@
           "classCaddy": "Сайт (Cover / Naive)",
           "classSkip": "Не в mux",
           "listen": "Listen",
-          "stealHint": "Неудачный REALITY handshake → сайт Cover",
+          "stealHint": "Неудачный REALITY handshake идёт на сайт Cover или WEB proxy. Включается само, если выбран любой из них.",
           "sniClash": "Два inbound с одним SNI {sni}. Каждому протоколу — свой.",
           "confirmApply": "Спрятать {n} inbound за 443 на {ip}. Revert вернёт listen.",
           "confirmOk": "Применить",
@@ -2741,7 +2744,9 @@
           "noBindIP": "Не удалось прочитать IPv4 NIC; Apply сменит порты по-старому.",
           "ufw": "Закрыть лишние порты (UFW)",
           "ufwHint": "Открывает SSH, панель, 80, 443 и inbound'ы, которые остаются снаружи. Остальное — deny. Revert выключит UFW, только если включили мы.",
-          "naiveHint": "Naive оставь на своём порту. В 443 не ставь — NekoBox / naive-client за маской таймаутит. Без галочки UFW этот порт не закроет. Если уже за маской — Revert и галочку не ставь.",
+          "naiveHint": "Naive не в таблице сверху — он внизу, на своём порту. За 443: галочка «Спрятать за сайт» и Apply. Потом обновите подписку.",
+          "naiveOwnPort": "Свой порт {port}. За 443 руками не переносите.",
+          "hideNaive": "Спрятать за {host}:443",
           "ufwOn": "UFW default-deny включён",
           "confirmApplyUfw": "Спрятать {n} inbound за 443 на {ip} и включить UFW default-deny. Revert вернёт listen (и выключит UFW, если включали мы).",
           "hidePanel": "Панель на 443",
@@ -2752,7 +2757,9 @@
           "apply": "Применить",
           "revert": "Вернуть",
           "applied": "Маска включена",
-          "reverted": "Маска снята"
+          "reverted": "Маска снята",
+      "insideSite": "Внутрь сайта",
+      "insideHint": "WS / HTTPUpgrade делят hostname Cover. Браузер на / видит сайт. После Apply обновите подписку."
     },
     "tunnels": {
       "title": "Инструменты туннелей",

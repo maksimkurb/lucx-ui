@@ -1,5 +1,57 @@
 # LucX-UI — Прогресс
 
+## lucx.269 — Masking: stop rewriting REALITY; hide WS inside Cover (2026-09-27)
+
+Apply no longer writes REALITY `dest` or `serverNames`. Reconcile does not either. Passthrough leaves public :443. Revert writes `listen` with a map so an empty listen clears `127.0.0.1`. Other subscription hosts for that inbound are disabled until Revert. WS / HTTPUpgrade (VLESS, VMess, Trojan, Shadowsocks) can sit inside a selected Cover on a path; the inbound TLS is dropped because Cover terminates it. Naive still uses the existing hide-behind-site checkbox. UDP (AWG included) stays public with a note, no checkbox.
+
+**lucxVersion:** lucx.269
+
+Tests: `go test ./internal/lucx/tunnel/ -count=1` (preview, plain path, cover route, reality SNI, empty listen). CI golangci: goimports group for gorm, drop unused `coverSelected`.
+
+---
+
+## unreleased — Delete discovered AWG / tproxy without importing (2026-09-25)
+
+Import modal gained **Delete selected**. It stops the foreign install and drops it from discover. It does not create or delete panel inbounds. AWG `.conf` files move to `x-ui-backup`. tproxy stops `tproxy-server` / `mtprotoproxy`, removes `/etc/tproxy-server`, and drops an nginx vhost that only reverse-proxies that listen port.
+
+No `lucxVersion` bump and no tag — not a release.
+
+Tests: `go test ./internal/awg/ ./internal/lucx/tunnel/`, frontend `awg-import-banner-warning` + i18n dead keys.
+
+---
+
+## lucx.268 — Masking: hide Naive behind the selected site (2026-09-25)
+
+Naive stays out of the 443 table. On the row below, tick «Спрятать за сайт» and Apply: the share link becomes `naive+https://…@site:443`. Cover uses behindCover; WEB proxy injects forward_proxy. HTTP/3 is turned off so NekoBox does not QUIC to a private port.
+
+**lucxVersion:** lucx.268
+
+CI: `createDefaultAnytlsInboundSettings` lacked `clients` after the schema started requiring it. Default is `[]`.
+
+---
+
+## lucx.267 — AnyTLS save keeps clients; TrustTunnel listen matches the picker; DKMS timer_delete probe (2026-09-25)
+
+AnyTLS inbound save dropped every client: the form schema had no `clients`, Zod stripped the key, `SyncInbound` wrote an empty set. The field is passthrough now. A save that omits the key (other sidecar forms with the same hole) copies the stored array back; an explicit `clients` array, including empty, is left alone.
+
+TrustTunnel HTTP/2 no longer writes `[listen_protocols.quic]`. HTTP/3 still listens TCP and QUIC. Share lines always set TLV `upstream_protocol` (1 = http2, 2 = http3) so NekoBox does not treat a missing tag as QUIC. HTTP/3 subscription emits https and quic, each as TLV and Throne URI.
+
+DKMS `timer_delete` wrap runs only when the build kernel's `timer.h` does not declare it. Ubuntu 22.04 `5.15.0-194` declares it; the old unconditional wrap was issue #114.
+
+**lucxVersion:** lucx.267
+
+---
+
+## lucx.266 — Masking leaves Naive on its own port (2026-09-25)
+
+Apply no longer offers Naive on the 443 mux (NekoBox times out there). If Naive occupies :443, Apply moves it to a free public port and UFW opens TCP+UDP. A previous Apply that hid Naive on loopback is undone on reconcile, without Revert. Share link stays `naive+https://user:pass@domain:port`. Refresh the subscription after Apply.
+
+Cover with no ZIP gets the nginx welcome page. REALITY dest and unknown SNI fall through to the selected site: Cover, or WEB proxy if there is no Cover. That is the script's decoy. Not ported: nginx TLS fingerprint, the login-decoy catalog, fail2ban.
+
+**lucxVersion:** lucx.266
+
+---
+
 ## lucx.265 — CSQTT share: raw `+` between VK hashes (2026-09-23)
 
 Android `parseLinkHashes` splits the raw `hashes` value on `+` before percent-decode. `url.Values` / `URLSearchParams` turned that separator into `%2B`, so the client treated the list as one hash and never connected. qWDTT was fine: its client wants commas and decodes first. Share and `/sub/` now emit `hashes=h1+h2`.

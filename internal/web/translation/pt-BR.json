@@ -801,7 +801,7 @@
         "naiveRouteOutboundHint": "Opcional. Força o tráfego Naive a sair por este outbound (ou balanceador). Deixe vazio para que suas regras de roteamento decidam.",
         "naiveAuthServiceHint": "Optional master basic_auth. Clients on this inbound get personal credentials automatically.",
         "naiveDomainHint": "Public hostname for NaiveProxy (SNI / ACME). Required for client links.",
-        "naiveMaskHint": "Do not hide this inbound behind 443 masking. Clients connect to this port directly.",
+        "naiveMaskHint": "Masking keeps Naive on its own port. If it is on 443, Apply moves it. Refresh the client subscription after Apply.",
         "naiveUseRaw": "Raw Caddyfile",
         "naiveProbeResistance": "Probe resistance",
         "naiveEnableH3": "HTTP/3 (QUIC)",
@@ -1014,7 +1014,10 @@
         "live": "Live",
         "address": "Address",
         "version": "Version",
-        "savedDisabled": "After import the old Docker/awg3 manager is stopped and the inbound is enabled. Stacks that share 10.8.1.0/24 need different subnets before more than one kernel iface is up."
+        "savedDisabled": "After import the old Docker/awg3 manager is stopped and the inbound is enabled. Stacks that share 10.8.1.0/24 need different subnets before more than one kernel iface is up.",
+        "delete": "Delete selected",
+        "deleteConfirm": "Stop and remove the selected installs from this host? Panel inbounds are not created or deleted.",
+        "deleted": "Removed {count}."
       },
       "protocolNames": {
         "awg": "AmneziaWG (kernel)",
@@ -2741,7 +2744,9 @@
           "noBindIP": "Could not read NIC IPv4; Apply will remap ports like before.",
           "ufw": "Close extra ports (UFW)",
           "ufwHint": "Allows SSH, panel, 80, 443, and inbounds left public. Denies the rest. Revert disables UFW only if we turned it on.",
-          "naiveHint": "Leave Naive on its own port. Do not tick it for 443 — NekoBox / naive-client times out behind the mask. Unchecked, UFW keeps that port open. If it is already masked, Revert and leave it off.",
+          "naiveHint": "Naive is not in the table above — it stays on its own port below. To put it on 443, tick Hide behind the site and Apply. Then refresh the subscription.",
+          "naiveOwnPort": "Own port {port}. Do not move it to 443 by hand.",
+          "hideNaive": "Hide behind {host}:443",
           "ufwOn": "UFW default-deny is on",
           "confirmApplyUfw": "Hide {n} inbound(s) behind 443 on {ip} and enable UFW default-deny. Revert restores listen (and disables UFW if we enabled it).",
           "hidePanel": "Hide panel on 443",
@@ -2752,7 +2757,9 @@
           "apply": "Apply selected",
           "revert": "Revert",
           "applied": "Mask applied",
-          "reverted": "Mask reverted"
+          "reverted": "Mask reverted",
+      "insideSite": "Inside the site",
+      "insideHint": "WS / HTTPUpgrade share the Cover hostname. A browser on / sees the site. Refresh the subscription after Apply."
     },
     "tunnels": {
       "title": "Tunnel tools",
