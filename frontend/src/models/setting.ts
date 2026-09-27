@@ -113,6 +113,7 @@ export class AllSetting {
   subHappAutoConnectType = 'lowestdelay';
   subHappPerAppMode = 'off';
   subHappPerAppList = '';
+  subHappLocalProxyAuth = 'auto';
 
   timeLocation = 'Local';
 
