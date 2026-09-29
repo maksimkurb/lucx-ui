@@ -1,18 +1,5 @@
 # LucX-UI — Прогресс
 
-## lucx.272 — Upstream sync release for maksimkurb (2026-09-29)
-
-Release the upstream lucx.270 and lucx.271 fixes together with the installer
-repository change in merge commit `756d5c56`. Bump the source version to
-lucx.272 so local builds and the release tag agree. No client config migration.
-
-**lucxVersion:** lucx.272
-
-Checks: version match and release CI before tagging; release assets and notes
-after the tag build.
-
----
-
 ## Upstream sync and installer repository (2026-09-29)
 
 Merged `upstream/main` through lucx.271 into `main`, including the opt-in AWG
