@@ -86,7 +86,7 @@ echo "AWG install hooks: OK"
 # bin/*.sh. Frontend: files under LucX-owned dirs/names (awg, lucx, tunnel,
 # sidecar, mieru, masking, trusttunnel, tproxy, anytls, cover, gateway,
 # csqtt, olcrtc, qwdtt) — upstream files have no header and stay exempt.
-NO_SPDX=$(echo "$FILES" | xargs grep -L "SPDX-License-Identifier" 2>/dev/null)
+NO_SPDX=$(printf '%s\n' "${PKG_FILES[@]}" "${EXTRA_FILES[@]}" | sort -u | xargs grep -L "SPDX-License-Identifier" 2>/dev/null)
 LUCX_FE=$(find frontend/src \( -iname '*awg*' -o -iname '*lucx*' -o -iname '*tunnel*' \
     -o -iname '*sidecar*' -o -iname '*mieru*' -o -iname '*masking*' \
     -o -iname '*trusttunnel*' -o -iname '*tproxy*' -o -iname '*anytls*' \

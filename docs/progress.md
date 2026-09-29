@@ -1,5 +1,43 @@
 # LucX-UI — Прогресс
 
+## Upstream sync and installer repository (2026-09-29)
+
+Merged `upstream/main` through lucx.271 into `main`, including the opt-in AWG
+TPROXY mode and forwarded-port save fix. Resolved the version conflict in favor
+of lucx.271; existing LUCX-HOOK counts did not decrease. `install.sh` now
+fetches releases and raw install files from `maksimkurb/lucx-ui` via
+`LUCX_REPO`. Existing client settings are not migrated or rewritten.
+
+Checks: `bash -n install.sh`, Go tests (1110 passed), `go build ./...`,
+`go vet ./...`, frontend typecheck, lint, unit tests (1436 passed), and build.
+`gofumpt` passed after aligning an existing INCY struct block. The SPDX check
+now covers LucX-owned files without demanding PolyForm headers on upstream GPL
+files that contain HOOKs.
+
+---
+
+## lucx.271 — Opt-in kernel AWG TPROXY (2026-09-27)
+
+`routeThroughXray=false` stays direct. Missing or `tun` mode stays the Xray TUN bridge. `xrayRoutingMode=tproxy` plus a local `tproxyPort` injects a loopback dokodemo-door and interface-scoped IPv4 TCP/UDP TPROXY rules. No client key or address rewrite. Remote nodes and userspace fallback are refused. Issue #118.
+
+**lucxVersion:** lucx.271
+
+Tests: `go test ./internal/awg/ -count=1 -run Tproxy`, frontend `awg-tproxy`. Linux netns test is opt-in (`LUCX_TPROXY_NETNS_TEST=1`). Service tests need Linux CGO.
+
+---
+
+## lucx.270 — AWG port-forward save; Telegram proxy survives settings save (2026-09-27)
+
+Client edit of kernel AWG dropped `forwardedPorts`: the settings write and conflict check only ran for AmneziaWG, so the clients page reopened with an empty field and iptables never saw the spec. Both protocols now share that path, and the editor writes `wg_forwarded_ports` itself when the field is non-empty. Empty still means omit.
+
+Settings save dropped `tgBotProxy` because `AllSetting` did not declare it (`cloneProps` only copies existing fields). The class and Telegram tab now round-trip it. An omitted proxy keeps the stored value; an explicit empty string clears it. The bot restarts when its proxy or panel egress changes.
+
+**lucxVersion:** lucx.270
+
+Tests: frontend `telegram-proxy`, `client-forwarded-ports`. Go controller/service tests need Linux CGO.
+
+---
+
 ## lucx.269 — Masking: stop rewriting REALITY; hide WS inside Cover (2026-09-27)
 
 Apply no longer writes REALITY `dest` or `serverNames`. Reconcile does not either. Passthrough leaves public :443. Revert writes `listen` with a map so an empty listen clears `127.0.0.1`. Other subscription hosts for that inbound are disabled until Revert. WS / HTTPUpgrade (VLESS, VMess, Trojan, Shadowsocks) can sit inside a selected Cover on a path; the inbound TLS is dropped because Cover terminates it. Naive still uses the existing hide-behind-site checkbox. UDP (AWG included) stays public with a note, no checkbox.

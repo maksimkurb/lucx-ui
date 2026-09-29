@@ -110,9 +110,9 @@ type AllSetting struct {
 	SubRoutingSource string `json:"subRoutingSource" form:"subRoutingSource"`
 	// END LUCX-HOOK
 	// LUCX-HOOK: INCY app-management settings.
-	SubIncyEnableRouting        bool   `json:"subIncyEnableRouting" form:"subIncyEnableRouting"`
-	SubIncyRoutingRules         string `json:"subIncyRoutingRules" form:"subIncyRoutingRules"`
-	SubIncyConfig               string `json:"subIncyConfig" form:"subIncyConfig"`
+	SubIncyEnableRouting bool   `json:"subIncyEnableRouting" form:"subIncyEnableRouting"`
+	SubIncyRoutingRules  string `json:"subIncyRoutingRules" form:"subIncyRoutingRules"`
+	SubIncyConfig        string `json:"subIncyConfig" form:"subIncyConfig"`
 	// END LUCX-HOOK
 	SubListen                   string `json:"subListen" form:"subListen"`
 	SubPort                     int    `json:"subPort" form:"subPort" validate:"gte=1,lte=65535"`

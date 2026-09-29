@@ -171,6 +171,9 @@ func AwgIFieldExportNote(settings string) string {
 // validateAwgSettingsForSave refuses everything except an over-budget I-set,
 // which is stored and logged once: refusing it froze node reconcile instead.
 func validateAwgSettingsForSave(settings, tag string) error {
+	if err := awg.ValidateTproxySettings(settings); err != nil {
+		return err
+	}
 	err := validateAwgSettingsJSON(settings)
 	if !errors.Is(err, awg.ErrIFieldsTooLarge) {
 		return err
@@ -633,6 +636,12 @@ func clearBroadcastTunnelIP(c *model.Client, proto model.Protocol, tunnelInbound
 
 func isTunnelProtocol(proto model.Protocol) bool {
 	return proto == model.AWG || proto == model.WireGuard || proto == model.AmneziaWG
+}
+
+// portForwardProtocol is the tunnel inbounds whose client JSON and client
+// record both store forwardedPorts. WireGuard has no host DNAT layer.
+func portForwardProtocol(proto model.Protocol) bool {
+	return proto == model.AmneziaWG || proto == model.AWG
 }
 
 func clearForeignTunnelFields(c *model.Client, proto model.Protocol) {
