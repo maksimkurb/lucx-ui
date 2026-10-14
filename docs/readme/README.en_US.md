@@ -32,7 +32,7 @@
 One-line installation on **Linux (Ubuntu / Debian / CentOS / AlmaLinux / Arch, etc.)**:
 
 ```bash
-bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 
 Optional install from Yandex (SourceCraft) when GitHub is unreachable. No tokens or git — panel, geo and scripts come in one package:
@@ -48,7 +48,7 @@ Later `x-ui update` uses the same source (`/etc/x-ui/install-source`).
 
 ### Non-Interactive Install (Cloud-Init)
 ```bash
-XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
+XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 Credentials are saved to `/etc/x-ui/install-result.env`.
 
@@ -212,7 +212,7 @@ LucX-UI shares the same Xray-core / SQLite (or PostgreSQL) database schema base 
 
 ```bash
 cp /etc/x-ui/x-ui.db /etc/x-ui/x-ui.db.bak
-bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 
 The AWG kernel module is built automatically by the installer (`bin/install-awg-module.sh`, DKMS). After install, run `x-ui` in the console to confirm AWG kernel module version and start adding AWG inbounds from the panel.

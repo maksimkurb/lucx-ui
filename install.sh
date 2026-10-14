@@ -2093,7 +2093,7 @@ install_x-ui() {
     # the binary; only the rolling dev build tracks main.
     local script_ref="${tag_version}"
     if [[ "${tag_version}" == "dev-latest" ]]; then
-        script_ref="fork"
+        script_ref="main"
     fi
     # The unit files are only fetched when the release tarball lacks them, so
     # they are checked at that point instead of here.

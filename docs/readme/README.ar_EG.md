@@ -31,7 +31,7 @@
 تثبيت بأمر واحد على **Linux (Ubuntu / Debian / CentOS / AlmaLinux / Arch إلخ)**:
 
 ```bash
-bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 
 تثبيت اختياري من Yandex (SourceCraft) عندما يتعذّر الوصول إلى GitHub. بلا توكنات ولا git — اللوحة وgeo والسكربتات في حزمة واحدة:
@@ -47,7 +47,7 @@ mkdir -p /tmp/lucx-dist && curl -fsSL https://codeload.sourcecraft.tech/alexeylc
 
 ### التثبيت التلقائي (Cloud-Init)
 ```bash
-XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
+XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 تُحفظ بيانات الدخول في `/etc/x-ui/install-result.env`.
 
@@ -194,7 +194,7 @@ Sidecar للنواة (مثل `mtg` لـ MTProto في 3x-ui) يعني أن AWG ي
 
 ```bash
 cp /etc/x-ui/x-ui.db /etc/x-ui/x-ui.db.bak
-bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 
 تُبنى موديل نواة AWG تلقائياً بواسطة المثبّت (`bin/install-awg-module.sh`, DKMS). بعد التثبيت، شغّل `x-ui` في الطرفية للتأكد من إصدار موديل نواة AWG وابدأ بإضافة AWG inbounds من اللوحة.

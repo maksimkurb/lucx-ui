@@ -31,7 +31,7 @@
 نصب تک‌خطی روی **لینوکس (Ubuntu / Debian / CentOS / AlmaLinux / Arch و غیره)**:
 
 ```bash
-bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 
 نصب اختیاری از Yandex (SourceCraft) وقتی GitHub در دسترس نیست. بدون توکن و git — پنل، geo و اسکریپت‌ها در یک بسته:
@@ -47,7 +47,7 @@ mkdir -p /tmp/lucx-dist && curl -fsSL https://codeload.sourcecraft.tech/alexeylc
 
 ### نصب خودکار (Cloud-Init)
 ```bash
-XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
+XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 اطلاعات ورود در `/etc/x-ui/install-result.env` ذخیره می‌شود.
 
@@ -194,7 +194,7 @@ LucX-UI همان پایگاهِ اسکیمای دیتابیس Xray-core / SQLite
 
 ```bash
 cp /etc/x-ui/x-ui.db /etc/x-ui/x-ui.db.bak
-bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 
 ماژول کرنل AWG توسط نصب‌کننده اتوماتیک ساخته می‌شود (`bin/install-awg-module.sh`, DKMS). پس از نصب، برای تأیید نسخهٔ ماژول کرنل AWG در کنسول `x-ui` را اجرا کنید و افزودن ورودی‌های AWG را از پنل آغاز کنید.

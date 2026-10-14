@@ -122,7 +122,7 @@ EOF
 # or EN+RU). Without notes the operator sees empty “What’s new” or raw compare.
 
 # 3. Install/update the panel on a VPS:
-bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 # or on an already installed one: x-ui update (console) / button in the web panel
 ```
 

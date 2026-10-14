@@ -63,8 +63,8 @@ type sponsorLogo struct {
 var (
 	// LUCX-HOOK: fork sponsor list — our Boosty supporters and contributors,
 	// served from the LucX repo; upstream's sponsors.sanaei.dev stays MHSanaei's.
-	sponsorsURL     = "https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/sponsors/3X/sponsors.json"
-	sponsorLogoBase = "https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/sponsors/3X/logos/"
+	sponsorsURL     = "https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/sponsors/3X/sponsors.json"
+	sponsorLogoBase = "https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/sponsors/3X/logos/"
 	// END LUCX-HOOK
 	sponsorNow = time.Now
 

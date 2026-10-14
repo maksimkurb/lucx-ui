@@ -56,7 +56,7 @@ type PanelReleaseNotes struct {
 }
 
 const (
-	panelUpdaterURL      = "https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/update.sh"
+	panelUpdaterURL      = "https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/update.sh"
 	maxPanelUpdaterBytes = 2 << 20
 	// devReleaseTag is the fixed-tag rolling pre-release the CI force-moves to the
 	// newest main commit; the dev update channel installs from it.

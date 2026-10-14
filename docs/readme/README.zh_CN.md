@@ -31,7 +31,7 @@
 在 **Linux (Ubuntu / Debian / CentOS / AlmaLinux / Arch 等)** 上的一键安装脚本：
 
 ```bash
-bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 
 可选：GitHub 不可达时从 Yandex（SourceCraft）安装。无需 token 或 git — 面板、geo 与脚本打成一个包：
@@ -47,7 +47,7 @@ mkdir -p /tmp/lucx-dist && curl -fsSL https://codeload.sourcecraft.tech/alexeylc
 
 ### 无人值守安装 (Cloud-Init)
 ```bash
-XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
+XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 凭据保存在 `/etc/x-ui/install-result.env` 中。
 
@@ -194,7 +194,7 @@ LucX-UI 与 3x-ui 共享相同的 Xray-core / SQLite（或 PostgreSQL）数据�
 
 ```bash
 cp /etc/x-ui/x-ui.db /etc/x-ui/x-ui.db.bak
-bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 
 AWG 内核模块由安装脚本 (`bin/install-awg-module.sh`, DKMS) 自动构建。安装完成后，在控制台运行 `x-ui` 以确认 AWG 内核模块版本，并从面板开始添加 AWG 入站。

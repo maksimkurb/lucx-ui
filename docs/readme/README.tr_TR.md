@@ -31,7 +31,7 @@
 **Linux (Ubuntu / Debian / CentOS / AlmaLinux / Arch vb.)** üzerinde tek satırla kurulum:
 
 ```bash
-bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 
 GitHub erişilemezse Yandex (SourceCraft) üzerinden isteğe bağlı kurulum. Token veya git yok — panel, geo ve betikler tek pakette:
@@ -47,7 +47,7 @@ Sonraki `x-ui update` aynı kaynağı kullanır (`/etc/x-ui/install-source`).
 
 ### Otomatik Kurulum (Cloud-Init)
 ```bash
-XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
+XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 Giriş bilgileri `/etc/x-ui/install-result.env` dosyasına kaydedilir.
 
@@ -194,7 +194,7 @@ LucX-UI, 3x-ui ile aynı Xray-core / SQLite (veya PostgreSQL) veritabanı şema 
 
 ```bash
 cp /etc/x-ui/x-ui.db /etc/x-ui/x-ui.db.bak
-bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 
 AWG çekirdek modülü, yükleyici tarafından otomatik olarak derlenir (`bin/install-awg-module.sh`, DKMS). Kurulumdan sonra, AWG çekirdek modülü sürümünü doğrulamak için konsolda `x-ui` komutunu çalıştırın ve panelden AWG inbound'ları eklemeye başlayın.
