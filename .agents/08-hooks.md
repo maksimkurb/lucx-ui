@@ -140,7 +140,7 @@ Origin twins. Merge taking origin deletes these with **no count drop**. Re-apply
 
 | File | Why |
 |---|---|
-| `update.sh` | `AlexeyLCP/lucx-ui` URLs, sha256 sidecar, AWG after fail2ban, `lucx-acme.sh migrate` (HOOK) |
+| `update.sh` | `maksimkurb/lucx-ui` URLs, sha256 sidecar, AWG after fail2ban, `lucx-acme.sh migrate` (HOOK) |
 | `.github/workflows/ci.yml` | lucx CI bits |
 | `.github/workflows/smoke.yml` | lucx smoke |
 | `.github/dependabot.yml` | lucx ignore/grouping |
