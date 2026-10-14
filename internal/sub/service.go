@@ -47,6 +47,9 @@ type SubService struct {
 	// other context — the sub info page, the panel's link/QR displays — renders
 	// the name-only template, like Remnawave.
 	subscriptionBody bool
+	// LUCX-HOOK: raw /sub fetched by Incy, which reads AmneziaWG only as amneziawg://<base64url .conf>
+	incyClient bool
+	// END LUCX-HOOK
 	// usageShown emits info once per subscription identity, including twins.
 	// PrepareForRequest resets this per-request state.
 	usageShown                 map[string]bool
@@ -1117,10 +1120,17 @@ func (s *SubService) genAmneziaWGLink(inbound *model.Inbound, email string) stri
 	endpoints := s.advertisedEndpoints(inbound)
 	links := make([]string, 0, len(endpoints))
 	for _, e := range endpoints {
-		text := amneziaWGConfigText(server, client, e.Address, e.Port, s.endpointRemark(inbound, email, e.ep, ""))
+		remark := s.endpointRemark(inbound, email, e.ep, "")
+		text := amneziaWGConfigText(server, client, e.Address, e.Port, remark)
 		if text == "" {
 			continue
 		}
+		// LUCX-HOOK: same .conf payload, Incy's scheme
+		if s.incyClient {
+			links = append(links, incyAmneziaWGLink(text, remark))
+			continue
+		}
+		// END LUCX-HOOK
 		links = append(links, "vpn://"+base64.RawURLEncoding.EncodeToString([]byte(text)))
 	}
 	return strings.Join(links, "\n")
@@ -3473,6 +3483,13 @@ func (s *SubService) genAwgLink(inbound *model.Inbound, email string) string {
 		}
 	}
 	render := func(dest string, port int, remark string) string {
+		if s.incyClient {
+			conf, err := service.BuildAwgClientConf(inbound, client, dest)
+			if err != nil {
+				return ""
+			}
+			return incyAmneziaWGLink(stampAwgShare(conf, dest, port, remark), remark)
+		}
 		link := fmt.Sprintf("amneziawg://%s@%s", encodeUserinfo(client.PrivateKey), joinHostPort(dest, port))
 		out := buildLinkWithParams(link, params, remark)
 		if conf, err := service.BuildAwgClientConf(inbound, client, dest); err == nil {
