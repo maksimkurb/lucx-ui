@@ -4,9 +4,9 @@
 > **Продвинутая панель Xray** — AmneziaWG (ядро + родной, до 3.1), импорт существующего AWG, туннельные сайдкары и sidecar outbounds (NaiveProxy · olcRTC · qWDTT · CSQTT · mieru · TrustTunnel · AnyTLS · Telegram WEB proxy), подписки Clash / Amnezia `vpn://` / Happ, RoscomVPN geo + Happ routing.
 
 <p align="center">
-  <a href="https://github.com/AlexeyLCP/lucx-ui/releases"><img src="https://img.shields.io/github/v/release/AlexeyLCP/lucx-ui" alt="Release"></a>
-  <a href="https://github.com/AlexeyLCP/lucx-ui/actions"><img src="https://img.shields.io/github/actions/workflow/status/AlexeyLCP/lucx-ui/release.yml.svg" alt="Build"></a>
-  <a href="https://github.com/AlexeyLCP/lucx-ui/releases/latest"><img src="https://img.shields.io/github/downloads/AlexeyLCP/lucx-ui/total.svg" alt="Downloads"></a>
+  <a href="https://github.com/maksimkurb/lucx-ui/releases"><img src="https://img.shields.io/github/v/release/maksimkurb/lucx-ui" alt="Release"></a>
+  <a href="https://github.com/maksimkurb/lucx-ui/actions"><img src="https://img.shields.io/github/actions/workflow/status/maksimkurb/lucx-ui/release.yml.svg" alt="Build"></a>
+  <a href="https://github.com/maksimkurb/lucx-ui/releases/latest"><img src="https://img.shields.io/github/downloads/maksimkurb/lucx-ui/total.svg" alt="Downloads"></a>
   <a href="docs/LICENSING.md"><img src="https://img.shields.io/badge/license-GPL--3.0%20%2B%20PolyForm--NC-blue" alt="License"></a>
   <a href="https://yoomoney.ru/to/41001989176429"><img src="https://img.shields.io/badge/donate-☕-yellow" alt="Donate"></a>
   <a href="https://boosty.to/alexeylcp"><img src="https://img.shields.io/badge/boosty-subscribe-orange" alt="Boosty"></a>
@@ -32,7 +32,7 @@
 Установка одной командой на **Linux (Ubuntu / Debian / CentOS / AlmaLinux / Arch и др.)**:
 
 ```bash
-bash <(curl -fL https://raw.githubusercontent.com/AlexeyLCP/lucx-ui/main/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 
 Если GitHub недоступен — те же файлы можно взять с Яндекса (SourceCraft). Токены и git не нужны: панель, geo-файлы и скрипты скачиваются одним архивом:
@@ -48,12 +48,12 @@ mkdir -p /tmp/lucx-dist && curl -fsSL https://codeload.sourcecraft.tech/alexeylc
 
 ### Автоматическая установка (Cloud-Init)
 ```bash
-XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/AlexeyLCP/lucx-ui/main/install.sh)
+XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 Учётные данные сохраняются в `/etc/x-ui/install-result.env`.
 
 ### Docker
-Образы собираются на каждый релизный тег (`ghcr.io/alexeylcp/lucx-ui`):
+Образы собираются на каждый релизный тег (`ghcr.io/maksimkurb/lucx-ui`):
 
 ```bash
 docker run -d \
@@ -63,7 +63,7 @@ docker run -d \
   --cap-add=NET_RAW \
   -p 2053:2053 \
   -v $PWD/db/:/etc/x-ui/ \
-  ghcr.io/alexeylcp/lucx-ui:latest
+  ghcr.io/maksimkurb/lucx-ui:latest
 ```
 
 Или `docker compose up -d` — образ тот же; `docker compose build` собирает локально.
@@ -214,7 +214,7 @@ LucX-UI использует ту же схему БД Xray-core / SQLite (ил�
 
 ```bash
 cp /etc/x-ui/x-ui.db /etc/x-ui/x-ui.db.bak
-bash <(curl -fL https://raw.githubusercontent.com/AlexeyLCP/lucx-ui/main/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 
 Установщик автоматически собирает AWG kernel-модуль (`bin/install-awg-module.sh`, DKMS). После установки запустите `x-ui` в консоли, чтобы увидеть версию модуля, и добавляйте AWG inbounds из панели.
@@ -340,7 +340,7 @@ LucX-UI бесплатен для личного использования. **�
 
 | Способ | Реквизиты |
 |---|---|
-| ⭐ **GitHub Star** | [Star AlexeyLCP/lucx-ui](https://github.com/AlexeyLCP/lucx-ui) |
+| ⭐ **GitHub Star** | [Star maksimkurb/lucx-ui](https://github.com/maksimkurb/lucx-ui) |
 | 🟠 **Boosty** (подписка) | [boosty.to/alexeylcp](https://boosty.to/alexeylcp) |
 | 🟠 **Boosty** (разово) | [boosty.to/alexeylcp/donate](https://boosty.to/alexeylcp/donate) |
 | 🇷🇺 **YooMoney** (RUB, Россия) | [yoomoney.ru/to/41001989176429](https://yoomoney.ru/to/41001989176429) |

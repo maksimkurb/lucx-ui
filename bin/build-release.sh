@@ -17,7 +17,7 @@ set -e
 # апстрим-релиза 3x-ui).
 #
 # Запуск (на VPS, Ubuntu/Debian amd64):
-#   curl -fL https://raw.githubusercontent.com/AlexeyLCP/lucx-ui/main/bin/build-release.sh | bash
+#   curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/bin/build-release.sh | bash
 # или локально из клона:
 #   bash bin/build-release.sh
 #
@@ -25,14 +25,14 @@ set -e
 #
 # Затем создать GitHub-релиз (нужен gh CLI с auth):
 #   gh release create v3.5.0-lucx.1 /tmp/x-ui-linux-amd64.tar.gz \
-#     --repo AlexeyLCP/lucx-ui \
+#     --repo maksimkurb/lucx-ui \
 #     --title "v3.5.0-lucx.1" \
 #     --notes "LucX-UI v3.5.0 с AWG-сайдкаром"
 # =============================================================================
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; NC='\033[0m'
 
-LUCX_REPO="AlexeyLCP/lucx-ui"
+LUCX_REPO="maksimkurb/lucx-ui"
 LUCX_BRANCH="main"
 UPSTREAM_REPO="MHSanaei/3x-ui"
 UPSTREAM_TAG="v3.5.0"

@@ -24,7 +24,7 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           # LUCX-HOOK: our GHCR. lucx tags are semver pre-releases, so latest is explicit.
-          images: ghcr.io/alexeylcp/lucx-ui
+          images: ghcr.io/maksimkurb/lucx-ui
           tags: |
             type=ref,event=branch
             type=ref,event=tag

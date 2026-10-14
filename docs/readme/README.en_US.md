@@ -4,9 +4,9 @@
 > **Advanced Xray control panel** — AmneziaWG (kernel + native, up to 3.1), import existing AWG, supervised tunnels & sidecar outbounds (NaiveProxy · olcRTC · qWDTT · CSQTT · mieru · TrustTunnel · Telegram WEB proxy), Clash / Amnezia `vpn://` / Happ subscriptions, RoscomVPN geo & Happ routing.
 
 <p align="center">
-  <a href="https://github.com/AlexeyLCP/lucx-ui/releases"><img src="https://img.shields.io/github/v/release/AlexeyLCP/lucx-ui" alt="Release"></a>
-  <a href="https://github.com/AlexeyLCP/lucx-ui/actions"><img src="https://img.shields.io/github/actions/workflow/status/AlexeyLCP/lucx-ui/release.yml.svg" alt="Build"></a>
-  <a href="https://github.com/AlexeyLCP/lucx-ui/releases/latest"><img src="https://img.shields.io/github/downloads/AlexeyLCP/lucx-ui/total.svg" alt="Downloads"></a>
+  <a href="https://github.com/maksimkurb/lucx-ui/releases"><img src="https://img.shields.io/github/v/release/maksimkurb/lucx-ui" alt="Release"></a>
+  <a href="https://github.com/maksimkurb/lucx-ui/actions"><img src="https://img.shields.io/github/actions/workflow/status/maksimkurb/lucx-ui/release.yml.svg" alt="Build"></a>
+  <a href="https://github.com/maksimkurb/lucx-ui/releases/latest"><img src="https://img.shields.io/github/downloads/maksimkurb/lucx-ui/total.svg" alt="Downloads"></a>
   <a href="../LICENSING.md"><img src="https://img.shields.io/badge/license-GPL--3.0%20%2B%20PolyForm--NC-blue" alt="License"></a>
   <a href="https://yoomoney.ru/to/41001989176429"><img src="https://img.shields.io/badge/donate-☕-yellow" alt="Donate"></a>
   <a href="https://boosty.to/alexeylcp"><img src="https://img.shields.io/badge/boosty-subscribe-orange" alt="Boosty"></a>
@@ -32,7 +32,7 @@
 One-line installation on **Linux (Ubuntu / Debian / CentOS / AlmaLinux / Arch, etc.)**:
 
 ```bash
-bash <(curl -fL https://raw.githubusercontent.com/AlexeyLCP/lucx-ui/main/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 
 Optional install from Yandex (SourceCraft) when GitHub is unreachable. No tokens or git — panel, geo and scripts come in one package:
@@ -48,12 +48,12 @@ Later `x-ui update` uses the same source (`/etc/x-ui/install-source`).
 
 ### Non-Interactive Install (Cloud-Init)
 ```bash
-XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/AlexeyLCP/lucx-ui/main/install.sh)
+XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 Credentials are saved to `/etc/x-ui/install-result.env`.
 
 ### Docker
-Images are published on every release tag (`ghcr.io/alexeylcp/lucx-ui`):
+Images are published on every release tag (`ghcr.io/maksimkurb/lucx-ui`):
 
 ```bash
 docker run -d \
@@ -63,7 +63,7 @@ docker run -d \
   --cap-add=NET_RAW \
   -p 2053:2053 \
   -v $PWD/db/:/etc/x-ui/ \
-  ghcr.io/alexeylcp/lucx-ui:latest
+  ghcr.io/maksimkurb/lucx-ui:latest
 ```
 
 Or `docker compose up -d` (pulls the same image; `docker compose build` builds locally).
@@ -212,7 +212,7 @@ LucX-UI shares the same Xray-core / SQLite (or PostgreSQL) database schema base 
 
 ```bash
 cp /etc/x-ui/x-ui.db /etc/x-ui/x-ui.db.bak
-bash <(curl -fL https://raw.githubusercontent.com/AlexeyLCP/lucx-ui/main/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 
 The AWG kernel module is built automatically by the installer (`bin/install-awg-module.sh`, DKMS). After install, run `x-ui` in the console to confirm AWG kernel module version and start adding AWG inbounds from the panel.
@@ -336,7 +336,7 @@ LucX-UI is free for personal use. **Liked it? Star the repo ⭐** — it helps o
 
 | Method | Details |
 |---|---|
-| ⭐ **GitHub Star** | [Star AlexeyLCP/lucx-ui](https://github.com/AlexeyLCP/lucx-ui) |
+| ⭐ **GitHub Star** | [Star maksimkurb/lucx-ui](https://github.com/maksimkurb/lucx-ui) |
 | 🟠 **Boosty** (subscription) | [boosty.to/alexeylcp](https://boosty.to/alexeylcp) |
 | 🟠 **Boosty** (one-time) | [boosty.to/alexeylcp/donate](https://boosty.to/alexeylcp/donate) |
 | 🇷🇺 **YooMoney** (RUB, Russia) | [yoomoney.ru/to/41001989176429](https://yoomoney.ru/to/41001989176429) |

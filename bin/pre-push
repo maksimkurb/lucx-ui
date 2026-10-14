@@ -13,7 +13,7 @@
 # Что делает:
 #   1. gofumpt-проверка LucX-файлов (bin/check-lucx.sh) — CI ловит это иначе.
 #   2. Быстрые Go-тесты изолированных пакетов (awg, lucx, config) — ~5 секунд.
-#   3. Открытые PR и issues на AlexeyLCP/lucx-ui (AGENTS.md шаг 11.5):
+#   3. Открытые PR и issues на maksimkurb/lucx-ui (AGENTS.md шаг 11.5):
 #      чужой необработанный PR — БЛОКИРУЕТ пуш (можно затереть чужую работу),
 #      issues — только предупреждение.
 #
@@ -21,7 +21,7 @@
 # =============================================================================
 set -uo pipefail
 
-REPO="AlexeyLCP/lucx-ui"
+REPO="maksimkurb/lucx-ui"
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 

@@ -53,8 +53,8 @@ import './AppSidebar.css';
 // LUCX-HOOK: point sidebar links at the LucX-UI fork, not upstream.
 const DONATE_URL = 'https://yoomoney.ru/to/41001989176429';
 const SHORTCUT_MODIFIER = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? '⌘' : 'Ctrl';
-const DOCS_URL = 'https://github.com/AlexeyLCP/lucx-ui#readme';
-const REPO_URL = 'https://github.com/AlexeyLCP/lucx-ui';
+const DOCS_URL = 'https://github.com/maksimkurb/lucx-ui#readme';
+const REPO_URL = 'https://github.com/maksimkurb/lucx-ui';
 const TG_URL = 'https://t.me/Lucx_soft';
 // END LUCX-HOOK
 const LOGOUT_KEY = '__logout__';

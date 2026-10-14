@@ -1,5 +1,19 @@
 # LucX-UI — Прогресс
 
+## lucx.295 - UFW also writes /etc/default/ufw under the sandbox (2026-10-14)
+
+Malderin: hiding a panel under masking now reaches the UFW step but fails: `Gateway applied, ufw: ERROR: '/etc/default/ufw' is not writable: exit status 1`. lucx.293 whitelisted `/etc/ufw`, but ufw's startup check also wants the sibling file `/etc/default/ufw` writable, and `ProtectSystem=full` keeps it read-only. The debian/arch/rhel units and the install/update drop-in generators add `-/etc/default/ufw` (missing-ok, so ufw-less hosts are unaffected).
+
+**lucxVersion:** lucx.295
+
+Files: `x-ui.service.{debian,arch,rhel}`, `install.sh`, `update.sh`.
+
+Tests: `bash -n` on both scripts; CI lint. No Go code changed.
+
+Healing: `x-ui update`, restart, then Masking Apply again. Issued client configs are not rewritten.
+
+---
+
 ## lucx.294 - UFW masking never touches SSH rules (2026-10-14)
 
 On some hosts `ufw --force delete allow 22/udp` also removes the `22/tcp` rule, and a masked inbound that had lived on port 22 put both specs in the close list - masking deleted SSH out of the firewall. `GatewayUFWAllow` likewise listed a masked inbound's `22/tcp`/`22/udp` next to the real SSH allow. Now: SSH (22 and the custom `sshd_config` port) is skipped in the allow list when it collides, `GatewayUFWClose` and `ApplyUFW` never delete SSH specs, `GatewayUFWRestore` skips reopening 22 (it is always allowed), and every allow goes through `ufwAllowSpec` which drops SSH ports except the single `22/tcp` rule.
@@ -149,7 +163,7 @@ Tests: `go test ./internal/awg/ -count=1` (new `TestPeerRoutePrefixes`, issue ca
 
 ## lucx.284 — Sponsors feed to fork + uninstall reinstall hint (2026-10-05)
 
-Upstream v3.9.0 added a Sponsors page fed from `sponsors.sanaei.dev/3X` — MHSanaei's paid slots rendered in our panel. `internal/web/service/panel/sponsor.go` now points `sponsorsURL`/`sponsorLogoBase` at raw `AlexeyLCP/lucx-ui/main/sponsors/*` (LUCX-HOOK) and reads `sponsors/sponsors.json` from the repo under XUI_DEBUG. The list carries Boosty supporters in tier order (Handshake → Pong → Ping → subscribers: VladufQa, пётр смолин, Сила Растений, Виталий Зайцев, Михаил Ляшенко, Камслат Глорихо, Игорь, Aleksandr S.) plus contributor thanks (Kirill Rudenko, 302ba, Aleksandr SacredX, alireza0, STRENCH0, 3x-ui team); contact → Boosty. i18n intro/yourBrandText de-3X-UI'd in all 13 locales. README financial-supporters block re-grouped by Boosty tier in RU + 5 translated READMEs, pointing at `/panel/sponsors`. `x-ui.sh` uninstall hint printed MHSanaei's install command — now it follows `lucx_install_source` (GitHub raw / Yandex dist bundle) like `install()` (LUCX-HOOK).
+Upstream v3.9.0 added a Sponsors page fed from `sponsors.sanaei.dev/3X` — MHSanaei's paid slots rendered in our panel. `internal/web/service/panel/sponsor.go` now points `sponsorsURL`/`sponsorLogoBase` at raw `maksimkurb/lucx-ui/main/sponsors/*` (LUCX-HOOK) and reads `sponsors/sponsors.json` from the repo under XUI_DEBUG. The list carries Boosty supporters in tier order (Handshake → Pong → Ping → subscribers: VladufQa, пётр смолин, Сила Растений, Виталий Зайцев, Михаил Ляшенко, Камслат Глорихо, Игорь, Aleksandr S.) plus contributor thanks (Kirill Rudenko, 302ba, Aleksandr SacredX, alireza0, STRENCH0, 3x-ui team); contact → Boosty. i18n intro/yourBrandText de-3X-UI'd in all 13 locales. README financial-supporters block re-grouped by Boosty tier in RU + 5 translated READMEs, pointing at `/panel/sponsors`. `x-ui.sh` uninstall hint printed MHSanaei's install command — now it follows `lucx_install_source` (GitHub raw / Yandex dist bundle) like `install()` (LUCX-HOOK).
 
 **lucxVersion:** lucx.284
 
@@ -1390,7 +1404,7 @@ Tests: `go test ./internal/lucx/tunnel` AnyTLS cases; frontend `genAnytlsLink`.
 - Download dial pins public IPs; `captureHost` refuses RFC1918; vpnuri 1 MiB cap; core upload 200 MB.
 - `.conf`/Caddy/ExtraArgs/AwgTimer reject newline inject; `awg-quick` 60s timeout; HPK `headerprotectionkey=`.
 - TUN gateways no wrap id 1 onto 255; subBody no redirects.
-- Docker: `ghcr.io/alexeylcp/lucx-ui` on release tags; Node 24; README `docker run`.
+- Docker: `ghcr.io/maksimkurb/lucx-ui` on release tags; Node 24; README `docker run`.
 
 Tests: `go test ./internal/awg/... ./internal/lucx/...` PASS.
 
@@ -3238,7 +3252,7 @@ fallback — `/usr/local/x-ui/bin/tunnel/trusttunnel-<id>-credentials.toml`).
 
 ## Контекст
 
-- **Репозиторий:** [AlexeyLCP/lucx-ui](https://github.com/AlexeyLCP/lucx-ui) — форк 3x-ui
+- **Репозиторий:** [maksimkurb/lucx-ui](https://github.com/maksimkurb/lucx-ui) — форк 3x-ui
 - **Текущая база апстрима:** v3.6.0 (`behind 0` относительно `origin/main`)
 - **Первая миграция:** с v3.3.1 → v3.5.0 (228 коммитов апстрима), стратегия migrate — свежий checkout + перенос LucX-кода поверх
 - **Ветка миграции v3.5.0:** `feat/awg-sidecar-v3.5.0` (создана от `origin/main` v3.5.0)
@@ -4173,14 +4187,14 @@ Tunnels: binary + olcRTC/qWDTT + legacy naive card.
 - Сервер v3 НЕ примет v1/v2/plain-WG клиентов (HPK криптографически ломает) — для смешанного парка отдельный v2-инбаунд. Задокументировано в Pattern 6 + UI alert `awgVersion3CompatNote`.
 
 **Релиз-процесс и CI-грабли (отдельные коммиты, не описаны выше):**
-- Коммиты: `432b7555` (фича) → `20bcf59a` (CI-фикс). Оба на `main`, запушены через `git@github.com:AlexeyLCP/lucx-ui.git` (SSH напрямую — git-credential helper gh в git bash был сломан: искал `/usr/bin/gh`, которого нет).
+- Коммиты: `432b7555` (фича) → `20bcf59a` (CI-фикс). Оба на `main`, запушены через `git@github.com:maksimkurb/lucx-ui.git` (SSH напрямую — git-credential helper gh в git bash был сломан: искал `/usr/bin/gh`, которого нет).
 - **CI-фикс 1 — codegen stale:** добавленное поле `InboundOption.AwgVersion` требовало регенерации `frontend/src/generated/*` (types/zod/schemas/examples) + `frontend/public/openapi.json` из Go OpenAPI-спецификации (`npm run gen` = `gen:zod` через `go run ./tools/openapigen` + `gen:api`). CI job `codegen` ловит рассинхон («Fail if generated files are stale»). **Урок:** любое изменение Go-struct с `json:`/`example:` тегами, попадающее в OpenAPI-ответ, требует `cd frontend && npm run gen` + коммит сгенерированных артефактов (AGENTS.md Rule 9 «Do not edit src/generated/» — про ручную правку, регенерировать можно и нужно).
 - **CI-фикс 2 — gofumpt на всём репо:** `golangci-lint` (CI) гоняет **весь** репо, а `bin/check-lucx.sh` — только 49 LucX-файлов. `awg_outbound.go:285` имел pre-existing кривой отступ в `case`-блоке `ParseConf` (отступ у `case "interface":`), который check-lucx не покрывал. `gofumpt -w` выровнял case. **Урок:** перед пушем гонять `gofumpt -l .` (весь репо), не только check-lucx.sh.
 - **Flaky go-test `TestBuildFirefoxHello_NoGrease`/`TestBuildSafariHello_NoGrease` (pre-existing, НЕ наш регресс):** CI использует `go test -shuffle=on` (рандомный seed каждый прогон). Воспроизвёл локально (~1/10 shuffle-seeds падает). Корень — в **чужой логике** `buildSafariHello`/`buildFirefoxHello` (`cps.go`): они пишут GREASE-значение через `greaseValue()` (`rng.Intn` над 16 значениями `0x0A0A…0xFAFA`), а тесты проверяют **отсутствие** паттернов `0a0a`/`fafa` в hex. Тест проходит в 14/16 случаев (когда rng выдаёт не эти 2 значения). Пробовал фикс `SetRand(t *testing.T, …)` с `t.Cleanup` для изоляции глобального `rng` — **не помог** (проблема в логике, не в загрязнении rng); откатил. Решено rerun'ом failed-джоба (другой shuffle-seed → зелёный). **TODO отдельным issue:** чинить тест (проверять GREASE только в extension-позициях) или логику (Safari/Firefox не должны писать GREASE через rng).
 - **race-job «завис» на ~23 мин:** оказался задержкой обновления статуса на стороне GitHub (лог race-job показал чистое завершение без DATA RACE ещё в ~22:44, а статус держал `in_progress`). Мой код race-чистый.
 - **Итог CI (run 30670481828, после rerun go-test):** все 9 jobs ✅ (go-test, race, golangci, codegen, frontend, fuzz-smoke, postgres-durable-first, govulncheck) + Release ✅ + CodeQL ✅.
 - **Тег `v3.6.0-lucx.50`** поставлен **после** зелёного CI (урок lucx.48 соблюдён), annotated, запушен. Release-workflow собрал CGO-бинарник на `ubuntu-latest`, создал GitHub Release `prerelease: false` (stable) с артефактом `x-ui-linux-amd64.tar.gz`. `releases/latest` → `v3.6.0-lucx.50` (install.sh и авто-обновление панелей подтянут его).
-- **Не деплоил на test2** — не было явной команды. Релиз собран, но в реальном runtime на VPS ещё не проверен. Установить: `bash <(curl -fL https://raw.githubusercontent.com/AlexeyLCP/lucx-ui/main/install.sh)` → создать AWG-инбаунд версии «3» → проверить HPK в `.conf` (`/etc/awg/awgN.conf`) и что `awgN` поднялся.
+- **Не деплоил на test2** — не было явной команды. Релиз собран, но в реальном runtime на VPS ещё не проверен. Установить: `bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)` → создать AWG-инбаунд версии «3» → проверить HPK в `.conf` (`/etc/awg/awgN.conf`) и что `awgN` поднялся.
 
 **Пост-релизный инцидент (2026-08-01, тестер Александр):** апгрейд до lucx.50 через **веб-панель** → AWG 1.5 outbounds «не подключаются» (handshake не проходит). Откат на lucx.49 лечил. Затем повтор через **консольное меню `x-ui`** → всё работает. Диагноз: НЕ регресс кода (git diff lucx.49→lucx.50 по outbound-рендеру и `client_manager.go` идентичен для v1.5/v2), а **рассинхон DKMS-модуля** — lucx.50 тянет пересборку amneziawg-модуля (AWG1→AWG3), веб-обновление не прогоняет `install-awg-module.sh` единым проходом, reconcile awgo-N попал в окно с расходящимися параметрами. Консольный путь прогоняет полный install-скрипт синхронно → согласованное состояние. Зафиксировано в AGENTS.md Pattern 1c; TODO — веб-обновление должно форсить пересборку модуля или предупреждать. Коммит-фикса кода не требуется.
 
@@ -4272,7 +4286,7 @@ AGENTS.md Known Issue #3 обновлён.
 **Цель:** `install.sh` должен ставить нашу сборку так же просто, как апстрим — через GitHub-релиз.
 
 **Выполнено:**
-- `install.sh` — 8 LUCX-HOOK замен URL (`MHSanaei/3x-ui` → `AlexeyLCP/lucx-ui`):
+- `install.sh` — 8 LUCX-HOOK замен URL (`MHSanaei/3x-ui` → `maksimkurb/lucx-ui`):
   - Константы `LUCX_REPO`/`LUCX_BRANCH` вверху
   - api.github.com/releases/latest, release tarball download, fallback URL → наш репо
   - x-ui.sh, x-ui.rc, 3 service-юнита → raw.githubusercontent из нашей ветки
@@ -4290,7 +4304,7 @@ AGENTS.md Known Issue #3 обновлён.
 
 **Следующие шаги (требует VPS):**
 1. На VPS: `curl .../bin/build-release.sh | bash` → `/tmp/x-ui-linux-amd64.tar.gz`
-2. `gh release create v3.5.0-lucx.1 /tmp/x-ui-linux-amd64.tar.gz --repo AlexeyLCP/lucx-ui`
+2. `gh release create v3.5.0-lucx.1 /tmp/x-ui-linux-amd64.tar.gz --repo maksimkurb/lucx-ui`
 3. `bash <(curl .../install.sh)` → установка панели с нашим кодом
 4. UI → создать AWG-inbound → `awg show` / `ip link show awg0`
 
@@ -4469,7 +4483,7 @@ amneziawg://OKtt7...%3D@localhost:15963?address=10.8.0.2%2F32&dns=1.1.1.1...&h1=
 
 ## Исправления по отзыву пользователя (2026-07-15, v3.5.0-lucx.8)
 
-**П1: обновление с нашего репо.** `x-ui.sh` + `update.sh` — все ссылки `MHSanaei/3x-ui` заменены на `AlexeyLCP/lucx-ui` (5+7 ссылок). Команды `install`/`update`/`update_dev`/`update_menu` теперь качают с нашего форка, не с апстрима. Проверено на VPS: `x-ui.sh` — 0 ссылок MHSanaei, 5 AlexeyLCP.
+**П1: обновление с нашего репо.** `x-ui.sh` + `update.sh` — все ссылки `MHSanaei/3x-ui` заменены на `maksimkurb/lucx-ui` (5+7 ссылок). Команды `install`/`update`/`update_dev`/`update_menu` теперь качают с нашего форка, не с апстрима. Проверено на VPS: `x-ui.sh` — 0 ссылок MHSanaei, 5 AlexeyLCP.
 
 **П2: версия LucX на дашборде.** `internal/config/config.go`: константа `lucxVersion = "lucx.8"`, `GetBaseVersion()` и `GetPanelVersion()` прибавляют суффикс (`3.5.0` → `3.5.0-lucx.8`, dev → `lucx.8+dev+<commit>`). Frontend: `window.X_UI_CUR_VER` (из `dist.go`) = `GetPanelVersion()` → отображается в `AppSidebar` (бейдж версии) и `IndexPage` (дашборд). Проверено: логи `Starting x-ui 3.5.0-lucx.8`. Тест `TestGetPanelVersion` обновлён.
 
@@ -4483,7 +4497,7 @@ amneziawg://OKtt7...%3D@localhost:15963?address=10.8.0.2%2F32&dns=1.1.1.1...&h1=
 
 **Симптом:** панель предлагала «обновиться до 3.5.0», хотя стояла `3.5.0-lucx.8`.
 
-**Рут-коза 1 (URL апстрима):** `panel.go` — `panelUpdaterURL` и `fetchPanelRelease` ссылались на `MHSanaei/3x-ui` (releases/latest = `v3.5.0` без lucx). Заменено на `AlexeyLCP/lucx-ui` (3 ссылки).
+**Рут-коза 1 (URL апстрима):** `panel.go` — `panelUpdaterURL` и `fetchPanelRelease` ссылались на `MHSanaei/3x-ui` (releases/latest = `v3.5.0` без lucx). Заменено на `maksimkurb/lucx-ui` (3 ссылки).
 
 **Рут-коза 2 (суффикс ломает парсер):** `parseVersionParts("3.5.0-lucx.8")` → `split(".")` = `["3","5","0-lucx","8"]` → `Atoi("0-lucx")` ошибка → `ok=false` → fallback `normalizeVersionTag(latest) != normalizeVersionTag(current)` → `true` → "update available".
 
@@ -4675,7 +4689,7 @@ PostDown = iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE; 
 
 ## Фикс: install.sh 404 — /releases/latest игнорировал prerelease-релизы (2026-07-17, v3.5.0-lucx.32)
 
-**Симптом:** `install.sh` падал с "Failed to fetch x-ui version" — `https://api.github.com/repos/AlexeyLCP/lucx-ui/releases/latest` возвращал 404.
+**Симптом:** `install.sh` падал с "Failed to fetch x-ui version" — `https://api.github.com/repos/maksimkurb/lucx-ui/releases/latest` возвращал 404.
 
 **Рут-коза:** GitHub API `/releases/latest` игнорирует релизы с `prerelease: true`. Все наши релизы (lucx.20–31) были prerelease → "latest" не существовал. `gh release list` их показывал, но API-эндпоинт, который дёргает install.sh, — нет.
 
@@ -4703,11 +4717,11 @@ PostDown = iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE; 
 
 **7. mutation.yml timeout 120→360** (LUCX-HOOK) — матрица service/database упиралась в 2ч и job отменялся GitHub'ом как cancelled.
 
-**8. bin/check-lucx.sh + bin/pre-push.** `check-lucx.sh` — gofumpt по изолированным пакетам + всем файлам с LUCX-HOOK (37 файлов), `-w` для автофикса — ловит Windows/Linux-дрейф форматирования до CI. `pre-push` — git hook (установка `cp bin/pre-push .git/hooks/pre-push`): gofumpt + быстрые go test (awg/lucx/config) + проверка открытых PR (блокирует) и issues (предупреждает) на AlexeyLCP/lucx-ui — механизирует AGENTS.md шаги 6 и 11.5.
+**8. bin/check-lucx.sh + bin/pre-push.** `check-lucx.sh` — gofumpt по изолированным пакетам + всем файлам с LUCX-HOOK (37 файлов), `-w` для автофикса — ловит Windows/Linux-дрейф форматирования до CI. `pre-push` — git hook (установка `cp bin/pre-push .git/hooks/pre-push`): gofumpt + быстрые go test (awg/lucx/config) + проверка открытых PR (блокирует) и issues (предупреждает) на maksimkurb/lucx-ui — механизирует AGENTS.md шаги 6 и 11.5.
 
 **9. Лицензия PolyForm Noncommercial 1.0.0.** Split-лицензирование: upstream-код — GPL-3.0, LucX-компоненты — PolyForm NC (свободно для личного/образовательного использования; коммерция, включая перепродажу VPN, — по письменному разрешению). Новое: `LICENSE-PolyForm-Noncommercial.txt` (канонический текст с polyformproject.org), `LICENSING.md` (граница лицензий, список LucX-файлов, контакт). SPDX-заголовки добавлены в 12 файлов, где их не было (`awg_job.go`, `nat_*`, `orphans_*`, `awg.ts`, `awg.tsx`, `wireguardConfig.ts`, `awg-inbound-id-context.ts`, `bin/install-awg-module.sh`, `bin/check-lucx.sh`, `bin/pre-push`); остальные 20 LucX-файлов уже имели заголовки.
 
-**10. README — LucX-секция** (LUCX-HOOK блок после badges): что такое форк, AWG-фичи, browser profiles, routeThroughXray, диагностика, install-команда с `AlexeyLCP/lucx-ui`, ссылка на LICENSING.md. Раньше README был чисто upstream с бейджами mhsanaei/3x-ui.
+**10. README — LucX-секция** (LUCX-HOOK блок после badges): что такое форк, AWG-фичи, browser profiles, routeThroughXray, диагностика, install-команда с `maksimkurb/lucx-ui`, ссылка на LICENSING.md. Раньше README был чисто upstream с бейджами mhsanaei/3x-ui.
 
 **11. Мелочи.** `.gitignore`: `.playwright-mcp/`. Удалены пустые директории-остатки старой ветки (`internal/lucx/{controller,integration,telegram,telemt}`) — не трекались git.
 
@@ -4752,7 +4766,7 @@ PostDown = iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE; 
 
 ## Фиксы по живым репортам тестеров + деплой dev на test2 (2026-07-19, dev-канал)
 
-**1. Футер/ссылки панели → наши.** `AppSidebar.tsx`: версия-бейдж, donate, docs указывали на MHSanaei/sanaei.dev → заменены на AlexeyLCP/lucx-ui + наш ЮMoney (LUCX-HOOK). Обновление через UI проверено: `panel.go` + `update.sh` полностью наши — ставит нашу версию (и stable, и dev).
+**1. Футер/ссылки панели → наши.** `AppSidebar.tsx`: версия-бейдж, donate, docs указывали на MHSanaei/sanaei.dev → заменены на maksimkurb/lucx-ui + наш ЮMoney (LUCX-HOOK). Обновление через UI проверено: `panel.go` + `update.sh` полностью наши — ставит нашу версию (и stable, и dev).
 
 **2. Онлайн-статус AWG-клиентов (репорт VladufQa «все оффлайн»).** Корень: online-set панели наполняли только Xray stats API и mtg; `awg_job` не вызывал `RefreshLocalOnlineClients` никогда. Фикс: `scrapeTransfer` → `scrapePeers` (один `awg show <iface> dump` = pubkey+rx+tx+handshake); `CollectTraffic` возвращает inbound-дельты + per-peer дельты + online-пиры (handshake < 180с, REKEY_TIMEOUT); джоба мапит pubkey→email и вызывает RefreshLocalOnlineClients каждый тик. **Бонус: per-client трафик** (раньше был только inbound-уровень). Baseline снова per-peer.
 
@@ -4940,7 +4954,7 @@ npm run build                                      exit 0 → internal/web/dist/
 
 ### Грабли релиза
 
-**1. `git push` падал с `/usr/bin/gh: No such file or directory`.** В глобальном git-конфиге `credential.https://github.com.helper = !/usr/bin/gh auth git-credential` — WSL-путь, неработоспособный из Windows-терминала. `gh auth status` показывает `Git operations protocol: ssh`, а remote `gh` — на https. **Обход без правки конфига:** `git push git@github.com:AlexeyLCP/lucx-ui.git main:main` (SSH-ключ `~/.ssh/id_ed25519` работает).
+**1. `git push` падал с `/usr/bin/gh: No such file or directory`.** В глобальном git-конфиге `credential.https://github.com.helper = !/usr/bin/gh auth git-credential` — WSL-путь, неработоспособный из Windows-терминала. `gh auth status` показывает `Git operations protocol: ssh`, а remote `gh` — на https. **Обход без правки конфига:** `git push git@github.com:maksimkurb/lucx-ui.git main:main` (SSH-ключ `~/.ssh/id_ed25519` работает).
 
 **2. `gofumpt` после merge.** Merge слепил пустую строку перед LUCX-HOOK-блоком в `xray_config_inject_test.go`. Важный нюанс: чистый апстрим-файл **тоже** не проходит gofumpt v0.10.0 (он разбивает `append(cfg.InboundConfigs,`) — проверяется через `git cat-file blob origin/main:<файл>` в отдельный UTF-8-файл. В нашем форке файл форматируется целиком (он в списке `bin/check-lucx.sh`), поэтому применён `gofumpt -w` полностью — иначе CI красный на golangci-lint.
 
@@ -5086,7 +5100,7 @@ systemctl start x-ui
   2. В раздел **О проекте / About** добавлено краткое, емкое описание предназначения LucX-UI (нативная интеграция AmneziaWG в виде сайдкара ядра, обфускация, TLS-отпечатки, клиентский режим AWG Outbounds, диагностика и 2 режима маршрутизации при 100% совместимости с апстрим-обновлениями 3x-ui).
   3. Технические детали (cloud-init, Docker, PostgreSQL, переменные окружения `/etc/default/x-ui`) убраны в аккуратные сворачиваемые блоки `<details>`.
   4. Скриншоты убраны в аккуратный блок `<details>`.
-  5. Исправлена ссылка на график динамики звёзд Stargazers: с `MHSanaei/3x-ui` на **`AlexeyLCP/lucx-ui`** во всех 7 языковых версиях.
+  5. Исправлена ссылка на график динамики звёзд Stargazers: с `MHSanaei/3x-ui` на **`maksimkurb/lucx-ui`** во всех 7 языковых версиях.
 
 Файлы: `README.md`, `README.ru_RU.md`, `README.ar_EG.md`, `README.es_ES.md`, `README.fa_IR.md`, `README.tr_TR.md`, `README.zh_CN.md`.
 

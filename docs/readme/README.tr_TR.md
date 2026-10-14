@@ -4,9 +4,9 @@
 > **Gelişmiş Xray paneli** — AmneziaWG (çekirdek + yerel, 3.1'e kadar), mevcut AWG içe aktarma, denetimli tüneller ve sidecar outbound'lar (NaiveProxy · olcRTC · qWDTT · CSQTT · mieru · TrustTunnel · Telegram WEB proxy), Clash / Amnezia `vpn://` / Happ abonelikleri, RoscomVPN geo ve Happ yönlendirme.
 
 <p align="center">
-  <a href="https://github.com/AlexeyLCP/lucx-ui/releases"><img src="https://img.shields.io/github/v/release/AlexeyLCP/lucx-ui" alt="Release"></a>
-  <a href="https://github.com/AlexeyLCP/lucx-ui/actions"><img src="https://img.shields.io/github/actions/workflow/status/AlexeyLCP/lucx-ui/release.yml.svg" alt="Build"></a>
-  <a href="https://github.com/AlexeyLCP/lucx-ui/releases/latest"><img src="https://img.shields.io/github/downloads/AlexeyLCP/lucx-ui/total.svg" alt="Downloads"></a>
+  <a href="https://github.com/maksimkurb/lucx-ui/releases"><img src="https://img.shields.io/github/v/release/maksimkurb/lucx-ui" alt="Release"></a>
+  <a href="https://github.com/maksimkurb/lucx-ui/actions"><img src="https://img.shields.io/github/actions/workflow/status/maksimkurb/lucx-ui/release.yml.svg" alt="Build"></a>
+  <a href="https://github.com/maksimkurb/lucx-ui/releases/latest"><img src="https://img.shields.io/github/downloads/maksimkurb/lucx-ui/total.svg" alt="Downloads"></a>
   <a href="../LICENSING.md"><img src="https://img.shields.io/badge/license-GPL--3.0%20%2B%20PolyForm--NC-blue" alt="License"></a>
   <a href="https://yoomoney.ru/to/41001989176429"><img src="https://img.shields.io/badge/donate-☕-yellow" alt="Donate"></a>
 </p>
@@ -31,7 +31,7 @@
 **Linux (Ubuntu / Debian / CentOS / AlmaLinux / Arch vb.)** üzerinde tek satırla kurulum:
 
 ```bash
-bash <(curl -fL https://raw.githubusercontent.com/AlexeyLCP/lucx-ui/main/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 
 GitHub erişilemezse Yandex (SourceCraft) üzerinden isteğe bağlı kurulum. Token veya git yok — panel, geo ve betikler tek pakette:
@@ -47,7 +47,7 @@ Sonraki `x-ui update` aynı kaynağı kullanır (`/etc/x-ui/install-source`).
 
 ### Otomatik Kurulum (Cloud-Init)
 ```bash
-XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/AlexeyLCP/lucx-ui/main/install.sh)
+XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 Giriş bilgileri `/etc/x-ui/install-result.env` dosyasına kaydedilir.
 
@@ -194,7 +194,7 @@ LucX-UI, 3x-ui ile aynı Xray-core / SQLite (veya PostgreSQL) veritabanı şema 
 
 ```bash
 cp /etc/x-ui/x-ui.db /etc/x-ui/x-ui.db.bak
-bash <(curl -fL https://raw.githubusercontent.com/AlexeyLCP/lucx-ui/main/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 ```
 
 AWG çekirdek modülü, yükleyici tarafından otomatik olarak derlenir (`bin/install-awg-module.sh`, DKMS). Kurulumdan sonra, AWG çekirdek modülü sürümünü doğrulamak için konsolda `x-ui` komutunu çalıştırın ve panelden AWG inbound'ları eklemeye başlayın.
@@ -288,7 +288,7 @@ LucX-UI kişisel kullanım için ücretsizdir. **Beğendiniz mi? ⭐ verin** —
 
 | Method | Details |
 |---|---|
-| ⭐ **GitHub Star** | [Star AlexeyLCP/lucx-ui](https://github.com/AlexeyLCP/lucx-ui) |
+| ⭐ **GitHub Star** | [Star maksimkurb/lucx-ui](https://github.com/maksimkurb/lucx-ui) |
 | 🇷🇺 **YooMoney** (RUB, Russia) | [yoomoney.ru/to/41001989176429](https://yoomoney.ru/to/41001989176429) |
 | 💎 **USDT (TON)** | `UQC48dE4i35bjEU4jljx0h1CGeXMu77eKZwN5W4gbcibmqDs` |
 | 💠 **USDT (ERC-20)** | `0xA49aBc042c5BB3d682788D3DEB2eAC833343a873` |

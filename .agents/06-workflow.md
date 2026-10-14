@@ -25,8 +25,8 @@ Extracted from AGENTS.md. This file is project law.
 10. COMMIT → `git add` specific files, `git commit` with descriptive message (Russian)
 11. STATUS → Output `git status` and `git log --oneline -15` after commits
 11.5. CHECK PR/ISSUES → BEFORE every push ALWAYS check open PRs and issues:
-             `gh pr list --repo AlexeyLCP/lucx-ui --state open`
-             `gh issue list --repo AlexeyLCP/lucx-ui --state open`
+             `gh pr list --repo maksimkurb/lucx-ui --state open`
+             `gh issue list --repo maksimkurb/lucx-ui --state open`
              If there are unhandled PRs (not yours) or issues — do NOT push
              immediately. Tell the user: which PRs/issues are open, by whom, and
              offer: (a) review/merge the PR first, (b) fix the issue first,
@@ -80,7 +80,7 @@ cp bin/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
 
 ## Release & Install (fork)
 
-`install.sh` is adapted for our fork (`AlexeyLCP/lucx-ui`): downloads the release tarball and raw scripts (x-ui.sh, x-ui.rc, service units) from `main`. Xray-core + mtg are reused from the upstream `MHSanaei/3x-ui` release.
+`install.sh` is adapted for our fork (`maksimkurb/lucx-ui`): downloads the release tarball and raw scripts (x-ui.sh, x-ui.rc, service units) from `main`. Xray-core + mtg are reused from the upstream `MHSanaei/3x-ui` release.
 
 GitHub is the source of truth. SourceCraft (`sc`, `alexeylcp/lucx-ui`) builds and tags independently (`.sourcecraft/ci.yaml` + `bin/sourcecraft-release.sh`). Optional install from Yandex: `install.sh --yandex` (or `LUCX_SOURCE=yandex`). The choice is stored in `/etc/x-ui/install-source` so later `x-ui update` stays on that host.
 
@@ -103,15 +103,15 @@ git log --oneline v3.7.0-lucx.$((N-1))..HEAD
 # 1. Wait for green CI on main, then tag — Release workflow
 #    will build the tarball and publish the stable release:
 git tag v3.7.0-lucx.N && git push gh v3.7.0-lucx.N
-gh run watch --repo AlexeyLCP/lucx-ui          # Release LucX-UI
-gh release view v3.7.0-lucx.N --repo AlexeyLCP/lucx-ui   # assets x-ui-linux-amd64.tar.gz, x-ui-linux-arm64.tar.gz
-# Same tag also runs docker.yml → ghcr.io/alexeylcp/lucx-ui:<tag> and :latest
+gh run watch --repo maksimkurb/lucx-ui          # Release LucX-UI
+gh release view v3.7.0-lucx.N --repo maksimkurb/lucx-ui   # assets x-ui-linux-amd64.tar.gz, x-ui-linux-arm64.tar.gz
+# Same tag also runs docker.yml → ghcr.io/maksimkurb/lucx-ui:<tag> and :latest
 # (amd64+arm64). First publish: GitHub → Packages → lucx-ui → Public.
 
 # 2. REQUIRED: release body (release notes) — what the operator sees
 #    in the panel on update (getPanelUpdateInfo → releaseNotes).
 #    upload-release-action often leaves body empty → fill it immediately:
-gh release edit v3.7.0-lucx.N --repo AlexeyLCP/lucx-ui --notes-file - <<'EOF'
+gh release edit v3.7.0-lucx.N --repo maksimkurb/lucx-ui --notes-file - <<'EOF'
 ## v3.7.0-lucx.N
 
 - item 1 (what changed for the user)
@@ -122,7 +122,7 @@ EOF
 # or EN+RU). Without notes the operator sees empty “What’s new” or raw compare.
 
 # 3. Install/update the panel on a VPS:
-bash <(curl -fL https://raw.githubusercontent.com/AlexeyLCP/lucx-ui/main/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
 # or on an already installed one: x-ui update (console) / button in the web panel
 ```
 
@@ -202,7 +202,7 @@ Tunnel sidecars (gzipped) live in `third_party/sidecars/linux-amd64/`. GitHub ta
 
 ## Branch Protection (gh/main)
 
-`main` on `AlexeyLCP/lucx-ui` is protected (Settings → Branches): **force-push and branch deletion are forbidden for everyone, including admin** (`enforce_admins: true`, `allow_force_pushes: false`, `allow_deletions: false`). PRs and status checks are NOT required — direct pushes work as before. If force-push is ever needed (e.g. history squash) — consciously relax the rule in Settings → Branches first, do it, put the rule back. Two-step by design.
+`main` on `maksimkurb/lucx-ui` is protected (Settings → Branches): **force-push and branch deletion are forbidden for everyone, including admin** (`enforce_admins: true`, `allow_force_pushes: false`, `allow_deletions: false`). PRs and status checks are NOT required — direct pushes work as before. If force-push is ever needed (e.g. history squash) — consciously relax the rule in Settings → Branches first, do it, put the rule back. Two-step by design.
 
 ---
 

@@ -92,7 +92,7 @@ i18n: extra keys in all 13 `internal/web/translation/*.json` have **no** HOOK. D
 | `internal/web/service/node.go` + `node_contract.go` | lucx node |
 | `internal/web/service/port_conflict.go` | lucx transports |
 | `internal/web/service/panel/panel.go` + `panel_test.go` | release notes / version |
-| `internal/web/service/panel/sponsor.go` | fork sponsor list URL (`AlexeyLCP/lucx-ui` raw) |
+| `internal/web/service/panel/sponsor.go` | fork sponsor list URL (`maksimkurb/lucx-ui` raw) |
 | `internal/web/service/tgbot/tgbot_client.go` + `tgbot_send.go` | lucx bot |
 
 ### Frontend (HOOK)
@@ -139,7 +139,7 @@ Origin twins. Merge taking origin deletes these with **no count drop**. Re-apply
 
 | File | Why |
 |---|---|
-| `update.sh` | `AlexeyLCP/lucx-ui` URLs, sha256 sidecar, AWG after fail2ban |
+| `update.sh` | `maksimkurb/lucx-ui` URLs, sha256 sidecar, AWG after fail2ban |
 | `.github/workflows/ci.yml` | lucx CI bits |
 | `.github/workflows/smoke.yml` | lucx smoke |
 | `.github/dependabot.yml` | lucx ignore/grouping |
