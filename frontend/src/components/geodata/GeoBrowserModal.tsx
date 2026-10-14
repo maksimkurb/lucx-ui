@@ -37,6 +37,10 @@ export interface GeoBrowserModalProps {
   value: string;
   onApply: (value: string) => void;
   onClose: () => void;
+  /** Limits the database picker to these file names. */
+  files?: readonly string[];
+  /** Builds the token written for a category; defaults to Xray's geosite:/ext: forms. */
+  formatToken?: (file: string, code: string, kind: GeoKind) => string;
 }
 
 // A geosite category inside an ip rule (or the reverse) is a config Xray will
@@ -63,6 +67,8 @@ export default function GeoBrowserModal({
   value,
   onApply,
   onClose,
+  files: allowedFiles,
+  formatToken = tokenFor,
 }: GeoBrowserModalProps) {
   const { t } = useTranslation();
   const [file, setFile] = useState<string | undefined>(undefined);
@@ -77,7 +83,13 @@ export default function GeoBrowserModal({
   const [seededFiles, setSeededFiles] = useState<Set<string>>(() => new Set());
 
   const filesQuery = useGeodataFiles(open);
-  const files = useMemo(() => databasesFor(filesQuery.data ?? [], kind), [filesQuery.data, kind]);
+  const files = useMemo(
+    () =>
+      databasesFor(filesQuery.data ?? [], kind).filter(
+        (candidate) => !allowedFiles || allowedFiles.includes(candidate.name),
+      ),
+    [filesQuery.data, kind, allowedFiles],
+  );
   const activeFile = useMemo(
     () => files.find((candidate) => candidate.name === file),
     [files, file],
@@ -139,10 +151,15 @@ export default function GeoBrowserModal({
       setEntryPage(1);
       setSelected([]);
     }
-  } else if (open && !file && files.length > 0) {
+  } else if (
+    open &&
+    files.length > 0 &&
+    !files.some((candidate) => candidate.name === file) &&
+    preferredFile(files, kind) !== file
+  ) {
     setFile(preferredFile(files, kind));
   } else if (open && file && categories.length > 0 && !seededFiles.has(file)) {
-    const tokens = categories.map((category) => tokenFor(file, category.code, fileKind));
+    const tokens = categories.map((category) => formatToken(file, category.code, fileKind));
     setKnown(new Set([...known, ...tokens]));
     setSeededFiles(new Set(seededFiles).add(file));
     const fromValue = selectionFromValue(value, new Set(tokens));
@@ -167,20 +184,20 @@ export default function GeoBrowserModal({
     if (!file) return [];
     const chosen = new Set(selected.map(canonicalToken));
     return categories
-      .filter((category) => chosen.has(canonicalToken(tokenFor(file, category.code, fileKind))))
+      .filter((category) => chosen.has(canonicalToken(formatToken(file, category.code, fileKind))))
       .map((category) => category.code);
-  }, [categories, file, fileKind, selected]);
+  }, [categories, file, fileKind, selected, formatToken]);
 
   const toggle = useCallback(
     (codes: string[]) => {
       if (!file) return;
-      const chosen = new Set(codes.map((code) => tokenFor(file, code, fileKind)));
+      const chosen = new Set(codes.map((code) => formatToken(file, code, fileKind)));
       const chosenCanonical = new Set([...chosen].map(canonicalToken));
       // The table reports keys for the rows it currently shows, so a selection
       // made before the search box was narrowed must survive untouched.
       const shown = new Set(
         visibleCategories.map((category) =>
-          canonicalToken(tokenFor(file, category.code, fileKind)),
+          canonicalToken(formatToken(file, category.code, fileKind)),
         ),
       );
       setSelected((previous) => {
@@ -195,7 +212,7 @@ export default function GeoBrowserModal({
         ];
       });
     },
-    [visibleCategories, file, fileKind],
+    [visibleCategories, file, fileKind, formatToken],
   );
 
   const categoryColumns: ColumnsType<GeoCategory> = useMemo(
@@ -384,7 +401,7 @@ export default function GeoBrowserModal({
               {activeCode ? (
                 <>
                   <div className="geo-preview-head">
-                    <Tooltip title={file ? tokenFor(file, activeCode, fileKind) : activeCode}>
+                    <Tooltip title={file ? formatToken(file, activeCode, fileKind) : activeCode}>
                       <span className="geo-preview-title">{activeCode}</span>
                     </Tooltip>
                     <Typography.Text type="secondary">{countLabel}</Typography.Text>

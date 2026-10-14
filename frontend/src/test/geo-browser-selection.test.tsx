@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import GeoBrowserModal from '@/components/geodata/GeoBrowserModal';
 import GeoTokenInput from '@/components/geodata/GeoTokenInput';
+import { clientGeoToken } from '@/pages/settings/happRoutingEditor';
 import { makeTestQueryClient } from '@/test/test-utils';
 import { HttpUtil, Msg } from '@/utils';
 
@@ -256,5 +257,36 @@ describe('GeoTokenInput validation feedback', () => {
       { timeout: 3000 },
     );
     expect(screen.queryByText(/Not in the database/)).toBeNull();
+  });
+});
+
+describe('GeoBrowserModal for client routing profiles', () => {
+  it('browses only the allowed database and writes the short client token', async () => {
+    const ruFile = { ...FILES[0], name: 'geosite_RU.dat' };
+    const get = mockGeodata([FILES[0], ruFile]);
+    const user = userEvent.setup();
+    const onApply = vi.fn();
+    render(
+      <GeoBrowserModal
+        open
+        kind="site"
+        value="geosite:cn"
+        files={['geosite_RU.dat']}
+        formatToken={clientGeoToken}
+        onApply={onApply}
+        onClose={vi.fn()}
+      />,
+      { wrapper },
+    );
+
+    await waitFor(async () => expect((await checkboxFor('cn')).checked).toBe(true));
+    await user.click(await checkboxFor('telegram'));
+    await user.click(screen.getByRole('button', { name: /apply|применить/i }));
+
+    const browsed = get.mock.calls
+      .filter(([url]) => String(url).includes('/geodata/categories'))
+      .map(([, params]) => (params as { file?: string }).file);
+    expect(new Set(browsed)).toEqual(new Set(['geosite_RU.dat']));
+    expect(onApply).toHaveBeenCalledWith('geosite:cn, geosite:telegram');
   });
 });

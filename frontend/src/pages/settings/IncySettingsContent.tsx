@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Input, Select, Switch, Tabs } from 'antd';
+import { Button, Input, Select, Switch, Tabs, message } from 'antd';
 import {
   AppstoreOutlined,
   BranchesOutlined,
+  BuildOutlined,
   NotificationOutlined,
   SafetyOutlined,
   ThunderboltOutlined,
@@ -10,6 +12,7 @@ import {
 import type { AllSetting } from '@/models/setting';
 import { SettingListItem } from '@/components/ui';
 import { catTabLabel } from './catTabLabel';
+import HappRoutingEditorModal from './HappRoutingEditorModal';
 
 interface IncySettingsContentProps {
   allSetting: AllSetting;
@@ -33,9 +36,12 @@ export default function IncySettingsContent({
   remoteSourceBadge,
 }: IncySettingsContentProps) {
   const { t } = useTranslation();
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [messageApi, messageContextHolder] = message.useMessage();
 
   return (
     <>
+      {messageContextHolder}
       <SettingListItem
         paddings="small"
         title={t('pages.settings.subIncyAppAutoDetect')}
@@ -468,6 +474,15 @@ export default function IncySettingsContent({
                 </SettingListItem>
                 <SettingListItem
                   paddings="small"
+                  title={t('pages.settings.subHappVisualBuilder')}
+                  description={t('pages.settings.subHappVisualBuilderDesc')}
+                >
+                  <Button icon={<BuildOutlined />} onClick={() => setIsEditorOpen(true)}>
+                    {t('pages.settings.subHappVisualBuilder')}
+                  </Button>
+                </SettingListItem>
+                <SettingListItem
+                  paddings="small"
                   title={t('pages.settings.subIncyRoutingRules')}
                   badge={remoteSourceBadge(allSetting.subIncyRoutingRules)}
                   description={t('pages.settings.subIncyRoutingRulesDesc')}
@@ -483,6 +498,20 @@ export default function IncySettingsContent({
           },
         ]}
       />
+
+      {/* Mount per opening so canceled edits are discarded and the latest parent draft is loaded. */}
+      {isEditorOpen ? (
+        <HappRoutingEditorModal
+          scheme="incy"
+          input={allSetting.subIncyRoutingRules}
+          onCancel={() => setIsEditorOpen(false)}
+          onGenerate={(deeplink) => {
+            updateSetting({ subIncyRoutingRules: deeplink });
+            setIsEditorOpen(false);
+            messageApi.success(t('pages.settings.subHappDeeplinkGenerated'));
+          }}
+        />
+      ) : null}
     </>
   );
 }
