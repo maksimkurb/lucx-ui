@@ -1,6 +1,6 @@
 # LucX-UI — Прогресс
 
-## Unreleased - ACME HTTP-01 next to a LucX Caddy on :80 (2026-10-14)
+## lucx.296 - ACME HTTP-01 next to a LucX Caddy on :80 (2026-10-14)
 
 The Cover site (and standalone naive with `useAcme`) binds TCP :80. acme.sh standalone (`x-ui` SSL menu, `install.sh`) then failed with `tcp port 80 is already used`. Cron renewal of a cert issued before Cover was enabled broke silently. The only workaround was disabling the inbound by hand.
 
@@ -15,7 +15,7 @@ The saved port never has to match the :80 owner, so a renewal succeeds on its fi
 
 Migration (`lucx-acme.sh migrate`, run by `install.sh`, `update.sh`, the x-ui renew menu and any port change in the prompt) moves standalone certs with no hooks of their own on port 80 to the saved port and our pre/post hooks, and re-points ours after a port change. Webroot/DNS certs, custom ports, and certs with an operator pre/post hook are left alone, as is everything when socat is missing. `x-ui uninstall` runs `lucx-acme.sh restore` first, so the certs renew on plain :80 again. The hooks are guarded with `[ ! -f … ] ||`, so a removed helper never blocks acme.sh. Docker ships the helper in `/app/bin` (`DockerInit.sh`).
 
-**lucxVersion:** unchanged on the feature branch (bump at release).
+**lucxVersion:** lucx.296
 
 Files: `internal/lucx/tunnel/acme.go` (new), `cover.go`, `naive.go`, `acme_test.go` (new), `cover_test.go`; `bin/lucx-acme.sh` (new); `x-ui.sh`, `install.sh`, `update.sh`, `.github/workflows/release.yml`, `bin/sourcecraft-release.sh`, `DockerInit.sh`.
 
