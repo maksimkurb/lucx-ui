@@ -16,7 +16,7 @@ Healing: update the panel. Incy picks up the AmneziaWG servers on the next subsc
 
 ---
 
-## Unreleased - ACME HTTP-01 next to a LucX Caddy on :80 (2026-10-14)
+## lucx.296 - ACME HTTP-01 next to a LucX Caddy on :80 (2026-10-14)
 
 The Cover site (and standalone naive with `useAcme`) binds TCP :80. acme.sh standalone (`x-ui` SSL menu, `install.sh`) then failed with `tcp port 80 is already used`. Cron renewal of a cert issued before Cover was enabled broke silently. The only workaround was disabling the inbound by hand.
 
