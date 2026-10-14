@@ -17,7 +17,7 @@ set -e
 # апстрим-релиза 3x-ui).
 #
 # Запуск (на VPS, Ubuntu/Debian amd64):
-#   curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/bin/build-release.sh | bash
+#   curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/bin/build-release.sh | bash
 # или локально из клона:
 #   bash bin/build-release.sh
 #

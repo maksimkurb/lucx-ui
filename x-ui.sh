@@ -31,7 +31,7 @@ lucx_install_source() {
     esac
 }
 lucx_script_base() {
-    echo "https://raw.githubusercontent.com/maksimkurb/lucx-ui/main"
+    echo "https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork"
 }
 # Runs install.sh / update.sh from the SourceCraft dist bundle (anonymous
 # codeload download), used on yandex hosts. $1 = script name.
@@ -364,7 +364,7 @@ uninstall() {
     if [[ "$(lucx_install_source)" == "yandex" ]]; then
         echo -e "${green}bash <(curl -fL https://codeload.sourcecraft.tech/alexeylcp/lucx-ui/tarball/refs/heads/dist | tar -xz --strip-components=1 -C /tmp/lucx-dist && bash /tmp/lucx-dist/install.sh --yandex)${plain}"
     else
-        echo -e "${green}bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)${plain}"
+        echo -e "${green}bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)${plain}"
     fi
     # END LUCX-HOOK
     echo ""
@@ -915,7 +915,7 @@ enable_bbr() {
 }
 
 update_shell() {
-    if replace_xui_script "https://github.com/maksimkurb/lucx-ui/raw/main/x-ui.sh" "true"; then
+    if replace_xui_script "https://github.com/maksimkurb/lucx-ui/raw/fork/x-ui.sh" "true"; then
         LOGI "Upgrade script succeeded, Please rerun the script"
         before_show_menu
     else

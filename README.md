@@ -32,7 +32,7 @@
 Установка одной командой на **Linux (Ubuntu / Debian / CentOS / AlmaLinux / Arch и др.)**:
 
 ```bash
-bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
 ```
 
 Если GitHub недоступен — те же файлы можно взять с Яндекса (SourceCraft). Токены и git не нужны: панель, geo-файлы и скрипты скачиваются одним архивом:
@@ -48,7 +48,7 @@ mkdir -p /tmp/lucx-dist && curl -fsSL https://codeload.sourcecraft.tech/alexeylc
 
 ### Автоматическая установка (Cloud-Init)
 ```bash
-XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
+XUI_NONINTERACTIVE=1 bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
 ```
 Учётные данные сохраняются в `/etc/x-ui/install-result.env`.
 
@@ -214,7 +214,7 @@ LucX-UI использует ту же схему БД Xray-core / SQLite (ил�
 
 ```bash
 cp /etc/x-ui/x-ui.db /etc/x-ui/x-ui.db.bak
-bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/install.sh)
+bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/fork/install.sh)
 ```
 
 Установщик автоматически собирает AWG kernel-модуль (`bin/install-awg-module.sh`, DKMS). После установки запустите `x-ui` в консоли, чтобы увидеть версию модуля, и добавляйте AWG inbounds из панели.

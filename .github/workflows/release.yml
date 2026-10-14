@@ -6,7 +6,7 @@ on:
   # branch on demand via workflow_dispatch.
   push:
     branches:
-      - main
+      - fork
     tags:
       - "v*.*.*"
     paths:
@@ -455,7 +455,7 @@ jobs:
   publish-dev:
     name: Publish rolling dev release
     needs: [build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/fork'
     runs-on: ubuntu-latest
     permissions:
       contents: write
