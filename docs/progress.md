@@ -1,12 +1,12 @@
 # LucX-UI — Прогресс
 
-## Unreleased - Visual routing editor for Incy, geo picker for Incy and Happ (2026-10-14)
+## lucx.298 - Visual routing editor for Incy, geo picker for Incy and Happ (2026-10-14)
 
 Settings → Subscription → Incy → Routing gets the same visual rule generator Happ has. Incy reads the Happ routing profile JSON unchanged ([docs](https://docs.incy.cc/en/routing/)), so `HappRoutingEditorModal` / `happRoutingEditor.ts` take a `scheme` (`happ` | `incy`). Only the deeplink prefix (`incy://routing/{add|onadd}/`, `incy://routing/off`) and the title/error strings change.
 
 Both editors now pick geosite/geoip categories with the Xray routing browser (`GeoBrowserModal`). The client applies these rules with the database it downloads, not the panel's `ext:` files. So the editor first asks for the geosite and geoip database (the panel's `geodata.assets`, URL + file). The choice is written as `Geositeurl` / `Geoipurl` in the profile, and the browser lists only the panel's copy of that file. It always writes `geosite:<tag>` / `geoip:<tag>`, so every picked category exists on the client. "Client default" leaves the URL fields out, and the browser then shows `geosite.dat` / `geoip.dat`. `GeoBrowserModal` gains optional `files` and `formatToken` props; the Xray routing page is unchanged. Picking replaces only the geo lines of a list; `domain:`/`regexp:`/CIDR lines stay as typed.
 
-**lucxVersion:** unchanged on the feature branch (bump at release).
+**lucxVersion:** lucx.298
 
 Files: `frontend/src/pages/settings/HappRoutingEditorModal.tsx`, `happRoutingEditor.ts`, `IncySettingsContent.tsx`, `frontend/src/components/geodata/GeoBrowserModal.tsx`, 8 new i18n keys in all 13 locales (`subIncyModalTitle`, `subIncyEditorLoad{Off,Remote,Invalid}`, `subRoutingGeo{SiteDb,IpDb,DbDesc,ClientDefault}`).
 
@@ -16,13 +16,13 @@ Healing: update the panel. Existing routing rules are loaded into the editor as 
 
 ---
 
-## Unreleased - Incy imports AmneziaWG from the subscription (2026-10-14)
+## lucx.298 - Incy imports AmneziaWG from the subscription (2026-10-14)
 
 Incy skipped every AmneziaWG server in the raw subscription. It reads AmneziaWG only as `amneziawg://<base64url of the client .conf>#name` or as a bare `.conf` ([docs](https://docs.incy.cc/en/subscription-format/)). The panel sent kernel `awg` as `amneziawg://<privkey>@host:port?jc=…` plus a `vpn://` AmneziaVPN container (qCompress JSON), and userspace `amneziawg` as `vpn://<base64url .conf>`. Incy knows neither `vpn://` nor the userinfo/query form. Tested on a live Incy: a re-encoded `amneziawg://<base64url .conf>` of an AWG 3 client imports and connects, including `PersistentKeepalive = 15-25`.
 
 When the raw `/sub/` request has an Incy `User-Agent` (`IsIncyClient`, the same match the Incy headers use), kernel `awg` now gives one `amneziawg://<base64url .conf>#remark` line per endpoint (the same `.conf` the `vpn://` line wrapped). Userspace `amneziawg` keeps its payload and switches the scheme from `vpn://` to `amneziawg://` and adds `#remark`. Other clients get exactly what they got before.
 
-**lucxVersion:** unchanged on the feature branch (bump at release).
+**lucxVersion:** lucx.298
 
 Files: `internal/sub/service.go` (`incyClient` field, `genAmneziaWGLink`, `genAwgLink`; LUCX-HOOK), `internal/sub/controller.go` (raw `/sub/` sets the flag; LUCX-HOOK), `internal/sub/awg_incy.go` (new), `internal/sub/awg_incy_test.go` (new).
 
