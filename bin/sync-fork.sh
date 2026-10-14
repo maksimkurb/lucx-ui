@@ -1,14 +1,14 @@
 #!/bin/bash
 # =============================================================================
-# Синхронизация ветки `fork` с вашей веткой `main`.
+# Синхронизация ветки `main` с веткой `contrib`.
 #
-#   main  = апстрим AlexeyLCP/lucx-ui + ваши правки (отсюда и из feature-веток
-#           идут PR в апстрим; апстрим вмерживается в main вручную).
-#   fork  = main + ссылки на репозиторий переписаны на maksimkurb/lucx-ui,
-#           чтобы install.sh / x-ui update ставили всё с вашего GitHub.
+#   contrib = апстрим AlexeyLCP/lucx-ui + ваши правки (отсюда и из feature-веток
+#             идут PR в апстрим; апстрим вмерживается в contrib вручную).
+#   main    = contrib + ссылки на репозиторий переписаны на maksimkurb/lucx-ui,
+#             чтобы install.sh / x-ui update ставили всё с вашего GitHub.
 #
-#   1. Забирает main с GitHub (то, что запушено) и вмерживает в `fork`.
-#      Конфликтующие куски берутся из main (-X theirs): fork отличается
+#   1. Забирает contrib с GitHub (то, что запушено) и вмерживает в `main`.
+#      Конфликтующие куски берутся из contrib (-X theirs): main отличается
 #      только заменой репозитория, а она применяется заново на шаге 2.
 #   2. Заменяет AlexeyLCP/lucx-ui → maksimkurb/lucx-ui во всех файлах
 #      (README, install.sh, update.sh, x-ui.sh, панель, docker и т.д.).
@@ -16,7 +16,7 @@
 #      не трогаются, иначе они станут битыми.
 #   3. Дописывает замену в merge-коммит (или делает отдельный коммит).
 #
-# Использование:  bin/sync-fork.sh && git push origin fork
+# Использование:  git checkout main && bin/sync-fork.sh && git push origin main
 #
 # Если merge остановился на конфликте, который -X theirs не разрешает
 # (например, файл удалён с одной стороны): разрешите его, сделайте
@@ -25,10 +25,10 @@
 set -euo pipefail
 
 SOURCE_URL="https://github.com/maksimkurb/lucx-ui.git"
-SOURCE_BRANCH="main"
+SOURCE_BRANCH="contrib"
 UPSTREAM_REPO="AlexeyLCP/lucx-ui"
 FORK_REPO="maksimkurb/lucx-ui"
-FORK_BRANCH="fork"
+FORK_BRANCH="main"
 SELF="bin/sync-fork.sh"
 
 cd "$(git rev-parse --show-toplevel)"
@@ -60,7 +60,7 @@ source_head=$(git rev-parse FETCH_HEAD)
 
 if local_main=$(git rev-parse -q --verify "refs/heads/$SOURCE_BRANCH") && [[ "$local_main" != "$source_head" ]]; then
     echo "Внимание: локальный $SOURCE_BRANCH ($(git rev-parse --short "$local_main")) не совпадает с GitHub" \
-        "($(git rev-parse --short "$source_head")). Беру версию с GitHub; незапушенное в fork не попадёт." >&2
+        "($(git rev-parse --short "$source_head")). Беру версию с GitHub; незапушенное в $FORK_BRANCH не попадёт." >&2
 fi
 
 before=$(git rev-parse HEAD)
@@ -78,7 +78,7 @@ if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
     fi
 fi
 
-echo "→ Готово. Отличия fork от $SOURCE_BRANCH:"
+echo "→ Готово. Отличия $FORK_BRANCH от $SOURCE_BRANCH:"
 git diff --stat "$source_head" HEAD
 echo
 echo "Оставшиеся упоминания (ссылки на PR/релизы апстрима и SourceCraft, оставлены специально):"
