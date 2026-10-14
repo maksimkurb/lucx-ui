@@ -1,9 +1,14 @@
 #!/bin/bash
 # =============================================================================
-# Синхронизация ветки `fork` с апстримом AlexeyLCP/lucx-ui.
+# Синхронизация ветки `fork` с вашей веткой `main`.
 #
-#   1. Забирает main апстрима и вмерживает его в текущую ветку `fork`.
-#      Конфликтующие куски берутся из апстрима (-X theirs): форк отличается
+#   main  = апстрим AlexeyLCP/lucx-ui + ваши правки (отсюда и из feature-веток
+#           идут PR в апстрим; апстрим вмерживается в main вручную).
+#   fork  = main + ссылки на репозиторий переписаны на maksimkurb/lucx-ui,
+#           чтобы install.sh / x-ui update ставили всё с вашего GitHub.
+#
+#   1. Забирает main с GitHub (то, что запушено) и вмерживает в `fork`.
+#      Конфликтующие куски берутся из main (-X theirs): fork отличается
 #      только заменой репозитория, а она применяется заново на шаге 2.
 #   2. Заменяет AlexeyLCP/lucx-ui → maksimkurb/lucx-ui во всех файлах
 #      (README, install.sh, update.sh, x-ui.sh, панель, docker и т.д.).
@@ -19,8 +24,8 @@
 # =============================================================================
 set -euo pipefail
 
-UPSTREAM_URL="https://github.com/AlexeyLCP/lucx-ui.git"
-UPSTREAM_BRANCH="main"
+SOURCE_URL="https://github.com/maksimkurb/lucx-ui.git"
+SOURCE_BRANCH="main"
 UPSTREAM_REPO="AlexeyLCP/lucx-ui"
 FORK_REPO="maksimkurb/lucx-ui"
 FORK_BRANCH="fork"
@@ -49,11 +54,17 @@ rewrite_repo_refs() {
             '
 }
 
-echo "→ Забираю $UPSTREAM_URL ($UPSTREAM_BRANCH)"
-git fetch --no-tags "$UPSTREAM_URL" "$UPSTREAM_BRANCH"
+echo "→ Забираю $SOURCE_URL ($SOURCE_BRANCH)"
+git fetch --no-tags "$SOURCE_URL" "$SOURCE_BRANCH"
+source_head=$(git rev-parse FETCH_HEAD)
+
+if local_main=$(git rev-parse -q --verify "refs/heads/$SOURCE_BRANCH") && [[ "$local_main" != "$source_head" ]]; then
+    echo "Внимание: локальный $SOURCE_BRANCH ($(git rev-parse --short "$local_main")) не совпадает с GitHub" \
+        "($(git rev-parse --short "$source_head")). Беру версию с GitHub; незапушенное в fork не попадёт." >&2
+fi
 
 before=$(git rev-parse HEAD)
-git merge --no-edit -X theirs -m "Merge $UPSTREAM_REPO@$UPSTREAM_BRANCH into $FORK_BRANCH" FETCH_HEAD
+git merge --no-edit -X theirs -m "Merge $FORK_REPO@$SOURCE_BRANCH into $FORK_BRANCH" "$source_head"
 
 echo "→ Заменяю $UPSTREAM_REPO → $FORK_REPO"
 rewrite_repo_refs
@@ -67,8 +78,8 @@ if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
     fi
 fi
 
-echo "→ Готово. Отличия форка от апстрима:"
-git diff --stat FETCH_HEAD HEAD
+echo "→ Готово. Отличия fork от $SOURCE_BRANCH:"
+git diff --stat "$source_head" HEAD
 echo
 echo "Оставшиеся упоминания (ссылки на PR/релизы апстрима и SourceCraft, оставлены специально):"
 git grep -c -i "$UPSTREAM_REPO" -- . ":!$SELF" || true
