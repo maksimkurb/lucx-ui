@@ -14,10 +14,7 @@
 #      (README, install.sh, update.sh, x-ui.sh, панель, docker и т.д.).
 #      Ссылки на конкретные PR/issues/релизы апстрима и зеркало SourceCraft
 #      не трогаются, иначе они станут битыми.
-#   3. Переключает ссылки на ветку main → fork: raw-URL скриптов, запасной
-#      script_ref в install.sh/update.sh, триггер dev-сборки в release.yml.
-#      Иначе сервер, поставленный с fork, обновлялся бы из main без замен.
-#   4. Дописывает замену в merge-коммит (или делает отдельный коммит).
+#   3. Дописывает замену в merge-коммит (или делает отдельный коммит).
 #
 # Использование:  bin/sync-fork.sh && git push origin fork
 #
@@ -69,21 +66,8 @@ fi
 before=$(git rev-parse HEAD)
 git merge --no-edit -X theirs -m "Merge $FORK_REPO@$SOURCE_BRANCH into $FORK_BRANCH" "$source_head"
 
-# shellcheck disable=SC2016  # $ENV{...} раскрывает perl, а не bash
-rewrite_branch_refs() {
-    git grep -lz -e "$FORK_REPO/main" -e "$FORK_REPO/raw/main" -e "$FORK_REPO/blob/main" -e "$FORK_REPO/tree/main" -- . ":!$SELF" |
-        FORK="$FORK_REPO" BR="$FORK_BRANCH" xargs -0 -r perl -pi -e '
-            s{(raw\.githubusercontent\.com/\Q$ENV{FORK}\E/)main\b}{$1$ENV{BR}}g;
-            s{(github\.com/\Q$ENV{FORK}\E/(?:raw|blob|tree)/)main\b}{$1$ENV{BR}}g;
-        '
-    perl -pi -e 's{^(\s*script_ref=)"main"$}{$1"'"$FORK_BRANCH"'"}' install.sh update.sh
-    perl -0pi -e 's{(push:\n    branches:\n      - )main\n}{$1'"$FORK_BRANCH"'\n}; s{github\.ref == \x27refs/heads/main\x27}{github.ref == \x27refs/heads/'"$FORK_BRANCH"'\x27}g' \
-        .github/workflows/release.yml
-}
-
-echo "→ Заменяю $UPSTREAM_REPO → $FORK_REPO, ветку main → $FORK_BRANCH"
+echo "→ Заменяю $UPSTREAM_REPO → $FORK_REPO"
 rewrite_repo_refs
-rewrite_branch_refs
 
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
     git add -u
