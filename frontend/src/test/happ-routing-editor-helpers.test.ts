@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applyGeoSelection,
   buildHappRoutingDeeplink,
+  clientGeoToken,
+  geoTokensOf,
   loadHappRouting,
   parseHappRoutingJson,
   parseHappRoutingList,
+  routingGeoSources,
 } from '@/pages/settings/happRoutingEditor';
 
 const profile = {
@@ -152,5 +156,69 @@ describe('Happ routing editor JSON and output', () => {
     expect(
       parseHappRoutingList('  geosite:cn\r\nregexp:^host[0-9]{1,3}\\.example$\n\n domain:local '),
     ).toEqual(['geosite:cn', 'regexp:^host[0-9]{1,3}\\.example$', 'domain:local']);
+  });
+});
+
+describe('Incy routing deeplinks', () => {
+  it('round-trips the same profile JSON under the incy scheme', () => {
+    const link = buildHappRoutingDeeplink(profile, 'add', 'incy');
+    expect(link.startsWith('incy://routing/add/')).toBe(true);
+    expect(loadHappRouting(link, 'incy')).toEqual({
+      success: true,
+      profile,
+      mode: 'add',
+      isNew: false,
+    });
+  });
+
+  it('keeps each app to its own scheme', () => {
+    expect(loadHappRouting('incy://routing/off', 'incy')).toEqual({ success: false, error: 'off' });
+    expect(loadHappRouting(buildHappRoutingDeeplink(profile, 'onadd'), 'incy')).toEqual({
+      success: false,
+      error: 'invalid',
+    });
+    expect(loadHappRouting(buildHappRoutingDeeplink(profile, 'onadd', 'incy'))).toEqual({
+      success: false,
+      error: 'invalid',
+    });
+  });
+});
+
+describe('Routing geo picker helpers', () => {
+  it('replaces only geo lines and keeps rules whose commas belong to a regexp', () => {
+    const buffer =
+      'geosite:cn\nregexp:^a{1,2}\\.example$\next:geosite_RU.dat:old\ndomain:keep.example';
+    expect(geoTokensOf(buffer)).toEqual(['geosite:cn', 'ext:geosite_RU.dat:old']);
+    expect(applyGeoSelection(buffer, ['geosite:cn', 'geosite:youtube'])).toBe(
+      'regexp:^a{1,2}\\.example$\ndomain:keep.example\ngeosite:cn\ngeosite:youtube',
+    );
+  });
+
+  it('writes the short client form whatever database the category came from', () => {
+    expect(clientGeoToken('geosite_RU.dat', 'youtube', 'site')).toBe('geosite:youtube');
+    expect(clientGeoToken('geoip_ROSCOM.dat', 'ru', 'ip')).toBe('geoip:ru');
+  });
+
+  it('prefers the configured assets and skips unusable rows', () => {
+    const payload = {
+      xraySetting: {
+        geodata: {
+          assets: [
+            { url: 'https://example.com/ru-site.dat', file: 'geosite_RU.dat' },
+            { url: 'https://example.com/dup.dat', file: 'geosite_RU.dat' },
+            { url: 'file:///etc/local.dat', file: 'geosite_LOCAL.dat' },
+            { url: 'https://example.com/ru-ip.dat', file: 'geoip_RU.dat' },
+          ],
+        },
+      },
+      geodataSources: [{ url: 'https://example.com/stock.dat', file: 'geosite.dat' }],
+    };
+    expect(routingGeoSources(payload)).toEqual([
+      { url: 'https://example.com/ru-site.dat', file: 'geosite_RU.dat' },
+      { url: 'https://example.com/ru-ip.dat', file: 'geoip_RU.dat' },
+    ]);
+    expect(routingGeoSources({ xraySetting: {}, geodataSources: payload.geodataSources })).toEqual(
+      payload.geodataSources,
+    );
   });
 });
