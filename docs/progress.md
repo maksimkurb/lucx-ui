@@ -1,5 +1,21 @@
 # LucX-UI — Прогресс
 
+## Unreleased - Incy imports AmneziaWG from the subscription (2026-10-14)
+
+Incy skipped every AmneziaWG server in the raw subscription. It reads AmneziaWG only as `amneziawg://<base64url of the client .conf>#name` or as a bare `.conf` ([docs](https://docs.incy.cc/en/subscription-format/)). The panel sent kernel `awg` as `amneziawg://<privkey>@host:port?jc=…` plus a `vpn://` AmneziaVPN container (qCompress JSON), and userspace `amneziawg` as `vpn://<base64url .conf>`. Incy knows neither `vpn://` nor the userinfo/query form. Tested on a live Incy: a re-encoded `amneziawg://<base64url .conf>` of an AWG 3 client imports and connects, including `PersistentKeepalive = 15-25`.
+
+When the raw `/sub/` request has an Incy `User-Agent` (`IsIncyClient`, the same match the Incy headers use), kernel `awg` now gives one `amneziawg://<base64url .conf>#remark` line per endpoint (the same `.conf` the `vpn://` line wrapped). Userspace `amneziawg` keeps its payload and switches the scheme from `vpn://` to `amneziawg://` and adds `#remark`. Other clients get exactly what they got before.
+
+**lucxVersion:** unchanged on the feature branch (bump at release).
+
+Files: `internal/sub/service.go` (`incyClient` field, `genAmneziaWGLink`, `genAwgLink`; LUCX-HOOK), `internal/sub/controller.go` (raw `/sub/` sets the flag; LUCX-HOOK), `internal/sub/awg_incy.go` (new), `internal/sub/awg_incy_test.go` (new).
+
+Tests: `TestGenAwgLink_IncyGetsOneBase64ConfLine`, `TestGenAmneziaWGLink_IncyGetsAmneziaWGScheme` (same payload as the `vpn://` line other clients keep), `TestRawSub_IncyUserAgentSwitchesAwgFormat` (DB-seeded `/sub/`: Incy UA gets one decodable line, `v2rayNG` keeps the `amneziawg://key@host` + `vpn://` pair). Each test went red with its part of the fix removed. `go test ./internal/sub/` green, `bin/check-lucx.sh` gofumpt OK.
+
+Healing: update the panel. Incy picks up the AmneziaWG servers on the next subscription refresh. Issued client configs are not rewritten.
+
+---
+
 ## Unreleased - ACME HTTP-01 next to a LucX Caddy on :80 (2026-10-14)
 
 The Cover site (and standalone naive with `useAcme`) binds TCP :80. acme.sh standalone (`x-ui` SSL menu, `install.sh`) then failed with `tcp port 80 is already used`. Cron renewal of a cert issued before Cover was enabled broke silently. The only workaround was disabling the inbound by hand.

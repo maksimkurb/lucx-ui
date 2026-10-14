@@ -532,6 +532,9 @@ func (a *SUBController) subs(c *gin.Context) {
 	scheme, host, hostWithPort, _ := a.subService.ResolveRequest(c)
 	subReq := a.subService.ForRequest(host)
 	subReq.subscriptionBody = true
+	// LUCX-HOOK: Incy gets AmneziaWG as amneziawg://<base64url .conf>
+	subReq.incyClient = IsIncyClient(userAgent)
+	// END LUCX-HOOK
 	subs, _, _, traffic, err := subReq.getSubs(subId)
 	if err != nil || subs == nil {
 		writeSubError(c, err)
