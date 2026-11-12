@@ -1,10 +1,10 @@
 # LucX-UI — Прогресс
 
-## lucx.361 - Fork sync with upstream lucx.360 (2026-11-12)
+## lucx.362 - Fork sync with upstream lucx.360 (2026-11-12)
 
-`contrib` merged with upstream `main` (lucx.360, Go 1.27.4). Our own Incy AmneziaWG fix was dropped in favour of the upstream one (`incyAwgExport`); the Incy routing editor stays.
+`contrib` merged with upstream `main` (lucx.360, Go 1.27.4). Our own Incy AmneziaWG fix was dropped in favour of the upstream one (`incyAwgExport`); the Incy routing editor stays. CI fixes: Incy routing keys added to the new sk-SK locale, dead `awg_incy.go` removed. lucx.361 shipped before them.
 
-**lucxVersion:** lucx.361
+**lucxVersion:** lucx.362
 
 ---
 
