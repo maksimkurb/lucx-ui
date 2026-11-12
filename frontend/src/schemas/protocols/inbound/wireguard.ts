@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { maskSubnet } from '@/lib/awg/subnet'; // LUCX-HOOK: kernel IPv4 validation
+import { WgoObfuscationSchema } from './wgo'; // LUCX-HOOK: wgobfs presets
 
 // AntD InputNumber emits null (not undefined) when the user clears it, and
 // the form store hands that null straight to safeParse on submit — a bare
@@ -66,19 +68,62 @@ export const WireguardClientSchema = z.object({
 });
 export type WireguardClient = z.infer<typeof WireguardClientSchema>;
 
-export const WireguardInboundSettingsSchema = z.object({
-  mtu: optionalClearedInt(z.number().int().min(1)),
-  secretKey: z.string().min(1),
-  dns: z.string().optional(),
-  peers: z.array(WireguardInboundPeerSchema).default([]),
-  clients: z.array(WireguardClientSchema).default([]),
-  noKernelTun: z.boolean().default(false),
-  // Admin-configurable base subnet new clients are auto-allocated from —
-  // mirrors AmneziaWG's settings.server.subnetIp/subnetCidr. Optional and
-  // left blank by default: an inbound that never sets this keeps the
-  // pre-existing behavior (infer from existing clients' own addresses, else
-  // fall back to 10.0.0.0/24 server-side).
-  subnetIp: z.string().default(''),
-  subnetCidr: optionalClearedInt(z.number().int().min(1).max(32)),
-});
+export const WireguardInboundSettingsSchema = z
+  .object({
+    // LUCX-HOOK: kernel backend is opt-in; existing settings stay on Xray.
+    kernel: z.boolean().optional(),
+    fwMark: z.preprocess(
+      (v) => (v === '' ? undefined : v),
+      z
+        .string()
+        .regex(/^(?:off|0[xX][0-9a-fA-F]{1,8}|[0-9]{1,10})$/)
+        .optional(),
+    ),
+    address: z.string().optional(),
+    tproxyPort: optionalClearedInt(z.number().int().min(1024).max(65535)),
+    // END LUCX-HOOK
+    mtu: optionalClearedInt(z.number().int().min(1)),
+    secretKey: z.string().min(1),
+    dns: z.string().optional(),
+    peers: z.array(WireguardInboundPeerSchema).default([]),
+    clients: z.array(WireguardClientSchema).default([]),
+    noKernelTun: z.boolean().default(false),
+    // Admin-configurable base subnet new clients are auto-allocated from —
+    // mirrors AmneziaWG's settings.server.subnetIp/subnetCidr. Optional and
+    // left blank by default: an inbound that never sets this keeps the
+    // pre-existing behavior (infer from existing clients' own addresses, else
+    // fall back to 10.0.0.0/24 server-side).
+    subnetIp: z.string().default(''),
+    subnetCidr: optionalClearedInt(z.number().int().min(1).max(32)),
+    // LUCX-HOOK: wgobfs obfuscation (optional — absent on pre-feature and
+    // vanilla inbounds, the feature stays hidden).
+    obfuscation: WgoObfuscationSchema.optional(),
+  })
+  // LUCX-HOOK: the kernel IPv4 bridge requires explicit server routing resources.
+  .superRefine((settings, ctx) => {
+    if (!settings.kernel) return;
+    const prefix = Number(settings.address?.split('/')[1]);
+    if (!settings.address || !maskSubnet(settings.address) || prefix < 8 || prefix > 30) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['address'],
+        message: 'pages.xray.wireguard.kernelAddressRequired',
+      });
+    }
+    if (!settings.tproxyPort) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['tproxyPort'],
+        message: 'pages.xray.wireguard.kernelPortRequired',
+      });
+    }
+    if (settings.obfuscation?.enabled && (settings.obfuscation.presets?.length ?? 0) === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['obfuscation', 'presets'],
+        message: 'pages.inbounds.form.wgoPresetRequired',
+      });
+    }
+  });
+// END LUCX-HOOK
 export type WireguardInboundSettings = z.infer<typeof WireguardInboundSettingsSchema>;

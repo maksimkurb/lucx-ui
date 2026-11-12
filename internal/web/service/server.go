@@ -33,11 +33,13 @@ import (
 	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/amneziawg"
+	"github.com/mhsanaei/3x-ui/v3/internal/amneziawgkern"
 	"github.com/mhsanaei/3x-ui/v3/internal/amneziawgnet"
 	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
+	"github.com/mhsanaei/3x-ui/v3/internal/lucx/keenetic" // LUCX-HOOK: Entware OPKG volume, not the firmware overlay
 	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/netsafe"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/sys"
@@ -66,6 +68,9 @@ const (
 // Status represents comprehensive system and application status information.
 // It includes CPU, memory, disk, network statistics, and Xray process status.
 type Status struct {
+	ResourceScope      string   `json:"resourceScope,omitempty"`
+	UnavailableMetrics []string `json:"unavailableMetrics,omitempty"`
+
 	T           time.Time `json:"-"`
 	Cpu         float64   `json:"cpu"`
 	CpuCores    int       `json:"cpuCores"`
@@ -138,6 +143,10 @@ type Status struct {
 	PublicIP struct {
 		IPv4 string `json:"ipv4"`
 		IPv6 string `json:"ipv6"`
+		// LUCX-HOOK: Extra holds the other public addresses bound to this
+		// host's interfaces; the lookup services above only see the egress one.
+		Extra []string `json:"extra"`
+		// END LUCX-HOOK
 	} `json:"publicIP"`
 	AppStats struct {
 		Threads uint32 `json:"threads"`
@@ -157,13 +166,17 @@ type Release struct {
 // ServerService provides business logic for server monitoring and management.
 // It handles system status collection, IP detection, and application statistics.
 type ServerService struct {
+	lxcMetrics sys.LXCReader
+
 	xrayService        XrayService
 	inboundService     InboundService
 	settingService     SettingService
 	cachedIPv4         string
 	cachedIPv6         string
-	noIPv6             bool
-	resolvingIPs       bool
+	nextIPv4Lookup     time.Time
+	nextIPv6Lookup     time.Time
+	ipv6RetryInterval  time.Duration
+	publicIPLookupDone chan struct{}
 	mu                 sync.Mutex
 	lastCPUTimes       cpu.TimesStat
 	hasLastCPUSample   bool
@@ -369,7 +382,7 @@ func (s *ServerService) GetDefaultLogOutboundTags() (freedoms, blackholes []stri
 // Kept for back-compat with the original /panel/api/server/cpuHistory/:bucket route;
 // the response key is "cpu" (not "v") so legacy consumers parse unchanged.
 func (s *ServerService) AggregateCpuHistory(bucketSeconds int, maxPoints int) []map[string]any {
-	out := systemMetrics.aggregate("cpu", bucketSeconds, maxPoints)
+	out := systemMetrics.aggregate(s.systemMetricKey("cpu"), bucketSeconds, maxPoints)
 	for _, p := range out {
 		p["cpu"] = p["v"]
 		delete(p, "v")
@@ -381,7 +394,7 @@ func (s *ServerService) AggregateCpuHistory(bucketSeconds int, maxPoints int) []
 // known system metric (see SystemMetricKeys). Output points have keys
 // {"t": unixSec, "v": value}; the caller decides how to format the value.
 func (s *ServerService) AggregateSystemMetric(metric string, bucketSeconds int, maxPoints int) []map[string]any {
-	return systemMetrics.aggregate(metric, bucketSeconds, maxPoints)
+	return systemMetrics.aggregate(s.systemMetricKey(metric), bucketSeconds, maxPoints)
 }
 
 type LogEntry struct {
@@ -461,35 +474,41 @@ var publicIPv6Services = []string{
 	"https://6.ident.me",
 }
 
-// resolvePublicIPs caches the public IPv4/IPv6 addresses on first use. The
-// lookups run outside s.mu so a stalling service cannot block a status sample.
+const (
+	publicIPRefreshInterval = 5 * time.Minute
+	publicIPRetryInterval   = time.Minute
+)
+
+// resolvePublicIPs waits for the initial lookup so cold backups can use it.
+// Warm callers use cached addresses while a refresh runs in the background.
 func (s *ServerService) resolvePublicIPs() {
-	s.mu.Lock()
-	wantIPv4 := s.cachedIPv4 == ""
-	wantIPv6 := s.cachedIPv6 == "" && !s.noIPv6
-	s.mu.Unlock()
-	if !wantIPv4 && !wantIPv6 {
-		return
+	ipv4, ipv6 := s.publicIPs()
+	if done := s.resolvePublicIPsInBackground(); done != nil && ipv4 == "" && ipv6 == "" {
+		<-done
 	}
+}
 
-	var ipv4, ipv6 string
-	if wantIPv4 {
-		ipv4 = firstPublicIP(publicIPv4Services)
+// refreshedPublicIP retains a known address through temporary lookup failures.
+func refreshedPublicIP(cached, fetched string, now time.Time) (string, time.Time) {
+	if fetched != "" && fetched != "N/A" {
+		return fetched, now.Add(publicIPRefreshInterval)
 	}
-	if wantIPv6 {
-		ipv6 = firstPublicIP(publicIPv6Services)
+	if cached == "" {
+		cached = "N/A"
 	}
+	return cached, now.Add(publicIPRetryInterval)
+}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if wantIPv4 && s.cachedIPv4 == "" {
-		s.cachedIPv4 = ipv4
-	}
-	if wantIPv6 && s.cachedIPv6 == "" {
-		s.cachedIPv6 = ipv6
-	}
-	if s.cachedIPv6 == "N/A" {
-		s.noIPv6 = true
+func nextPublicIPv6RetryInterval(previous time.Duration) time.Duration {
+	switch {
+	case previous < time.Minute:
+		return time.Minute
+	case previous < 2*time.Minute:
+		return 2 * time.Minute
+	case previous < 5*time.Minute:
+		return 5 * time.Minute
+	default:
+		return 15 * time.Minute
 	}
 }
 
@@ -506,27 +525,109 @@ func firstPublicIP(services []string) string {
 	return ip
 }
 
-// resolvePublicIPsInBackground keeps a status sample off the lookup path: a box
-// with no IPv6 route spends 3s per service, and the sample is what nodes report.
-func (s *ServerService) resolvePublicIPsInBackground() {
+// resolvePublicIPsInBackground shares one lookup without blocking status samples.
+// Each address family has its own deadline; cached values stay readable.
+func (s *ServerService) resolvePublicIPsInBackground() <-chan struct{} {
 	s.mu.Lock()
-	settled := s.cachedIPv4 != "" && (s.cachedIPv6 != "" || s.noIPv6)
-	if s.resolvingIPs || settled {
+	if done := s.publicIPLookupDone; done != nil {
 		s.mu.Unlock()
-		return
+		return done
 	}
-	s.resolvingIPs = true
+	now := time.Now()
+	wantIPv4 := !now.Before(s.nextIPv4Lookup)
+	wantIPv6 := !now.Before(s.nextIPv6Lookup)
+	if !wantIPv4 && !wantIPv6 {
+		s.mu.Unlock()
+		return nil
+	}
+	done := make(chan struct{})
+	s.publicIPLookupDone = done
 	s.mu.Unlock()
 
 	go func() {
-		defer func() {
-			s.mu.Lock()
-			s.resolvingIPs = false
-			s.mu.Unlock()
-		}()
-		s.resolvePublicIPs()
+		var ipv4, ipv6 string
+		if wantIPv4 {
+			ipv4 = firstPublicIP(publicIPv4Services)
+		}
+		if wantIPv6 {
+			ipv6 = firstPublicIP(publicIPv6Services)
+		}
+
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		now := time.Now()
+		if wantIPv4 {
+			s.cachedIPv4, s.nextIPv4Lookup = refreshedPublicIP(s.cachedIPv4, ipv4, now)
+		}
+		if wantIPv6 {
+			s.cachedIPv6, s.nextIPv6Lookup = refreshedPublicIP(s.cachedIPv6, ipv6, now)
+			if ipv6 != "" && ipv6 != "N/A" {
+				s.ipv6RetryInterval = 0
+			} else {
+				s.ipv6RetryInterval = nextPublicIPv6RetryInterval(s.ipv6RetryInterval)
+				s.nextIPv6Lookup = now.Add(s.ipv6RetryInterval)
+			}
+		}
+		s.publicIPLookupDone = nil
+		close(done)
 	}()
+	return done
 }
+
+// LUCX-HOOK: interfacePublicIPs lists the globally routable addresses bound to
+// up interfaces, skipping loopback, link-local, private and CGNAT ranges and
+// any address in skip, so the dashboard shows every public IP of the host —
+// the lookup services only return the egress one.
+func interfacePublicIPs(skip ...string) []string {
+	ifaces, err := stdnet.Interfaces()
+	if err != nil {
+		return nil
+	}
+	var v4, v6 []string
+	for _, iface := range ifaces {
+		if iface.Flags&stdnet.FlagUp == 0 || iface.Flags&stdnet.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*stdnet.IPNet)
+			if !ok {
+				continue
+			}
+			str, ok := publicIPString(ipNet.IP)
+			if !ok || slices.Contains(skip, str) || slices.Contains(v4, str) || slices.Contains(v6, str) {
+				continue
+			}
+			if ipNet.IP.To4() != nil {
+				v4 = append(v4, str)
+			} else {
+				v6 = append(v6, str)
+			}
+		}
+	}
+	return append(v4, v6...)
+}
+
+// publicIPString classifies one interface address for the extra-IP dashboard
+// list: it returns ok=false for loopback, multicast, link-local, RFC1918/ULA
+// private and CGNAT (100.64.0.0/10) addresses.
+func publicIPString(ip stdnet.IP) (string, bool) {
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() {
+		return "", false
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		if ip4[0] == 100 && ip4[1] >= 64 && ip4[1] < 128 {
+			return "", false
+		}
+		return ip4.String(), true
+	}
+	return ip.String(), true
+}
+
+// END LUCX-HOOK
 
 func (s *ServerService) publicIPs() (ipv4 string, ipv6 string) {
 	s.mu.Lock()
@@ -540,53 +641,61 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 		T: now,
 	}
 
-	// CPU stats
-	util, err := s.sampleCPUUtilization()
-	if err != nil {
-		logger.Warning("get cpu percent failed:", err)
+	scoped, scopeErr := s.lxcMetrics.Read(now)
+	if scopeErr != nil {
+		logger.Warning("get scoped metrics failed:", scopeErr)
+	}
+	if scoped != nil {
+		applyLXCStats(status, scoped)
 	} else {
-		status.Cpu = util
-	}
-
-	status.CpuCores, err = cpu.Counts(false)
-	if err != nil {
-		logger.Warning("get cpu cores count failed:", err)
-	}
-
-	status.LogicalPro = runtime.NumCPU()
-
-	if status.CpuSpeedMhz = s.cachedCpuSpeedMhz; s.cachedCpuSpeedMhz == 0 && time.Since(s.lastCpuInfoAttempt) > 5*time.Minute {
-		s.lastCpuInfoAttempt = time.Now()
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			cpuInfos, err := cpu.Info()
-			if err != nil {
-				logger.Warning("get cpu info failed:", err)
-				return
-			}
-			if len(cpuInfos) > 0 {
-				s.cachedCpuSpeedMhz = cpuInfos[0].Mhz
-				status.CpuSpeedMhz = s.cachedCpuSpeedMhz
-			} else {
-				logger.Warning("could not find cpu info")
-			}
-		}()
-		select {
-		case <-done:
-		case <-time.After(1500 * time.Millisecond):
-			logger.Warning("cpu info query timed out; will retry later")
+		// CPU stats
+		util, err := s.sampleCPUUtilization()
+		if err != nil {
+			logger.Warning("get cpu percent failed:", err)
+		} else {
+			status.Cpu = util
 		}
-	} else if s.cachedCpuSpeedMhz != 0 {
-		status.CpuSpeedMhz = s.cachedCpuSpeedMhz
-	}
 
-	// Uptime
-	upTime, err := host.Uptime()
-	if err != nil {
-		logger.Warning("get uptime failed:", err)
-	} else {
-		status.Uptime = upTime
+		status.CpuCores, err = cpu.Counts(false)
+		if err != nil {
+			logger.Warning("get cpu cores count failed:", err)
+		}
+
+		status.LogicalPro = runtime.NumCPU()
+
+		if status.CpuSpeedMhz = s.cachedCpuSpeedMhz; s.cachedCpuSpeedMhz == 0 && time.Since(s.lastCpuInfoAttempt) > 5*time.Minute {
+			s.lastCpuInfoAttempt = time.Now()
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				cpuInfos, err := cpu.Info()
+				if err != nil {
+					logger.Warning("get cpu info failed:", err)
+					return
+				}
+				if len(cpuInfos) > 0 {
+					s.cachedCpuSpeedMhz = cpuInfos[0].Mhz
+					status.CpuSpeedMhz = s.cachedCpuSpeedMhz
+				} else {
+					logger.Warning("could not find cpu info")
+				}
+			}()
+			select {
+			case <-done:
+			case <-time.After(1500 * time.Millisecond):
+				logger.Warning("cpu info query timed out; will retry later")
+			}
+		} else if s.cachedCpuSpeedMhz != 0 {
+			status.CpuSpeedMhz = s.cachedCpuSpeedMhz
+		}
+
+		// Uptime
+		upTime, err := host.Uptime()
+		if err != nil {
+			logger.Warning("get uptime failed:", err)
+		} else {
+			status.Uptime = upTime
+		}
 	}
 
 	// Memory stats
@@ -598,22 +707,29 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 		status.Mem.Total = memInfo.Total
 	}
 
-	swapInfo, err := mem.SwapMemory()
-	if err != nil {
-		logger.Warning("get swap memory failed:", err)
-	} else {
-		status.Swap.Current = swapInfo.Used
-		status.Swap.Total = swapInfo.Total
+	if scoped == nil {
+		swapInfo, err := mem.SwapMemory()
+		if err != nil {
+			logger.Warning("get swap memory failed:", err)
+		} else {
+			status.Swap.Current = swapInfo.Used
+			status.Swap.Total = swapInfo.Total
+		}
 	}
 
 	// Disk stats
-	diskInfo, err := disk.Usage("/")
-	if err != nil {
+	// LUCX-HOOK: Keenetic Entware — statfs("/") is the firmware RAM overlay,
+	// not the OPKG volume (USB or internal ROM).
+	if used, total, ok := keenetic.OPKGUsage(); ok {
+		status.Disk.Current = used
+		status.Disk.Total = total
+	} else if diskInfo, err := disk.Usage("/"); err != nil {
 		logger.Warning("get disk usage failed:", err)
 	} else {
 		status.Disk.Current = diskInfo.Used
 		status.Disk.Total = diskInfo.Total
 	}
+	// END LUCX-HOOK
 
 	diskIOStats, err := disk.IOCounters()
 	if err != nil {
@@ -697,6 +813,9 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 
 	s.resolvePublicIPsInBackground()
 	status.PublicIP.IPv4, status.PublicIP.IPv6 = s.publicIPs()
+	// LUCX-HOOK: dashboard lists every public IP bound to the host interfaces.
+	status.PublicIP.Extra = interfacePublicIPs(status.PublicIP.IPv4, status.PublicIP.IPv6)
+	// END LUCX-HOOK
 
 	// Xray status
 	if s.xrayService.IsXrayRunning() {
@@ -725,7 +844,7 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 		logger.Warning("count amneziawg inbounds failed:", err)
 	}
 	status.AmneziaWG.Configured = amneziawgCount > 0
-	status.AmneziaWG.Running = amneziawgnet.GetManager().HasRunning()
+	status.AmneziaWG.Running = amneziawgnet.GetManager().HasRunning() || amneziawgkern.GetManager().HasRunning()
 
 	status.PanelVersion = config.GetPanelVersion()
 	if guid, err := s.settingService.GetPanelGuid(); err == nil {
@@ -753,7 +872,7 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 // AppendCpuSample is preserved for callers that only have the CPU number.
 // New callers should prefer AppendStatusSample which writes the full set.
 func (s *ServerService) AppendCpuSample(t time.Time, v float64) {
-	systemMetrics.append("cpu", t, v)
+	systemMetrics.append(s.systemMetricKey("cpu"), t, v)
 }
 
 // AppendStatusSample writes one tick of every metric we keep — CPU, memory
@@ -764,14 +883,14 @@ func (s *ServerService) AppendStatusSample(t time.Time, status *Status) {
 	if status == nil {
 		return
 	}
-	systemMetrics.append("cpu", t, status.Cpu)
+	appendScopedMetric(status, "cpu", t, status.Cpu)
 	if status.Mem.Total > 0 {
 		systemMetrics.append("mem", t, float64(status.Mem.Current)*100.0/float64(status.Mem.Total))
 	}
 	if status.Swap.Total > 0 {
-		systemMetrics.append("swap", t, float64(status.Swap.Current)*100.0/float64(status.Swap.Total))
+		appendScopedMetric(status, "swap", t, float64(status.Swap.Current)*100.0/float64(status.Swap.Total))
 	} else {
-		systemMetrics.append("swap", t, 0)
+		appendScopedMetric(status, "swap", t, 0)
 	}
 	systemMetrics.append("netUp", t, float64(status.NetIO.Up))
 	systemMetrics.append("netDown", t, float64(status.NetIO.Down))
@@ -1589,6 +1708,13 @@ func (s *ServerService) backupSQLite() (string, func(), error) {
 		cleanup()
 		return "", nil, err
 	}
+	// LUCX-HOOK: embed the uploaded cover/tproxy masking sites into the backup
+	// copy so restoring it brings the sites back (see backup_site_files.go).
+	if err := embedBackupSiteFiles(backupPath); err != nil {
+		cleanup()
+		return "", nil, fmt.Errorf("backup: embed site files: %w", err)
+	}
+	// END LUCX-HOOK
 	return backupPath, cleanup, nil
 }
 
@@ -1903,6 +2029,13 @@ func (s *ServerService) ImportDB(file multipart.File, keepHostSettings bool) err
 	restoreHostBoundSettings(keptSettings)
 
 	s.inboundService.MigrateDB()
+
+	// LUCX-HOOK: write back the masking sites embedded in the backup
+	// (backup_site_files.go). DB-only backups restore unchanged.
+	if err := restoreBackupSiteFiles(); err != nil {
+		return fmt.Errorf("imported DB but failed to restore site files: %w", err)
+	}
+	// END LUCX-HOOK
 
 	xrayStopped = false
 	if err = s.RestartXrayService(); err != nil {
@@ -2273,22 +2406,31 @@ func (s *ServerService) IsValidGeofileName(filename string) bool {
 
 // Repo is the upstream release base and Asset the name it publishes under; all
 // three publish "geoip.dat", so only FileName tells the local copies apart.
+// URL overrides that flow for upstreams with no GitHub releases (Geo-Aggregator
+// commits the files straight to main): the entry's URL is downloaded as-is and
+// there is nothing published to verify it against, so integrity rests on TLS
+// exactly like Xray's own geodata.assets fetches.
 type geofileEntry struct {
 	Repo     string
 	Asset    string
 	FileName string
+	URL      string
 }
 
 var geofileAllowlist = map[string]geofileEntry{
-	"geoip.dat":      {"https://github.com/Loyalsoldier/v2ray-rules-dat", "geoip.dat", "geoip.dat"},
-	"geosite.dat":    {"https://github.com/Loyalsoldier/v2ray-rules-dat", "geosite.dat", "geosite.dat"},
-	"geoip_IR.dat":   {"https://github.com/chocolate4u/Iran-v2ray-rules", "geoip.dat", "geoip_IR.dat"},
-	"geosite_IR.dat": {"https://github.com/chocolate4u/Iran-v2ray-rules", "geosite.dat", "geosite_IR.dat"},
-	"geoip_RU.dat":   {"https://github.com/runetfreedom/russia-v2ray-rules-dat", "geoip.dat", "geoip_RU.dat"},
-	"geosite_RU.dat": {"https://github.com/runetfreedom/russia-v2ray-rules-dat", "geosite.dat", "geosite_RU.dat"},
+	"geoip.dat":      {"https://github.com/Loyalsoldier/v2ray-rules-dat", "geoip.dat", "geoip.dat", ""},
+	"geosite.dat":    {"https://github.com/Loyalsoldier/v2ray-rules-dat", "geosite.dat", "geosite.dat", ""},
+	"geoip_IR.dat":   {"https://github.com/chocolate4u/Iran-v2ray-rules", "geoip.dat", "geoip_IR.dat", ""},
+	"geosite_IR.dat": {"https://github.com/chocolate4u/Iran-v2ray-rules", "geosite.dat", "geosite_IR.dat", ""},
+	"geoip_RU.dat":   {"https://github.com/runetfreedom/russia-v2ray-rules-dat", "geoip.dat", "geoip_RU.dat", ""},
+	"geosite_RU.dat": {"https://github.com/runetfreedom/russia-v2ray-rules-dat", "geosite.dat", "geosite_RU.dat", ""},
 	// LUCX-HOOK: RoscomVPN custom geo (RKN geoblock lists)
-	"geoip_ROSCOM.dat":   {"https://github.com/hydraponique/roscomvpn-geoip", "geoip.dat", "geoip_ROSCOM.dat"},
-	"geosite_ROSCOM.dat": {"https://github.com/hydraponique/roscomvpn-geosite", "geosite.dat", "geosite_ROSCOM.dat"},
+	"geoip_ROSCOM.dat":   {"https://github.com/hydraponique/roscomvpn-geoip", "geoip.dat", "geoip_ROSCOM.dat", ""},
+	"geosite_ROSCOM.dat": {"https://github.com/hydraponique/roscomvpn-geosite", "geosite.dat", "geosite_ROSCOM.dat", ""},
+	// END LUCX-HOOK
+	// LUCX-HOOK: Geo-Aggregator (Ground-Zerro) — RU blocklist aggregate, no releases, files on main
+	"geoip_GA.dat":   {"", "", "geoip_GA.dat", "https://raw.githubusercontent.com/Ground-Zerro/Geo-Aggregator/main/geodat/geoip_GA.dat"},
+	"geosite_GA.dat": {"", "", "geosite_GA.dat", "https://raw.githubusercontent.com/Ground-Zerro/Geo-Aggregator/main/geodat/geosite_GA.dat"},
 	// END LUCX-HOOK
 }
 
@@ -2302,7 +2444,7 @@ type GeodataSource struct {
 func StandardGeodataSources() []GeodataSource {
 	sources := make([]GeodataSource, 0, len(geofileAllowlist))
 	for _, entry := range geofileAllowlist {
-		sources = append(sources, GeodataSource{URL: entry.latestURL(), File: entry.FileName})
+		sources = append(sources, GeodataSource{URL: entry.sourceURL(), File: entry.FileName})
 	}
 	slices.SortFunc(sources, func(a, b GeodataSource) int { return strings.Compare(a.File, b.File) })
 	return sources
@@ -2314,6 +2456,24 @@ func (entry geofileEntry) latestURL() string {
 
 func (entry geofileEntry) taggedURL(tag string) string {
 	return entry.Repo + "/releases/download/" + tag + "/" + entry.Asset
+}
+
+// assetURL is the URL bytes are downloaded from for a pinned release tag, or
+// the entry's own URL for a direct (no-release) upstream.
+func (entry geofileEntry) assetURL(tag string) string {
+	if entry.URL != "" {
+		return entry.URL
+	}
+	return entry.taggedURL(tag)
+}
+
+// sourceURL is the preset URL shown to the panel operator: a direct source
+// uses its own URL, release-based upstreams the `latest` download.
+func (entry geofileEntry) sourceURL() string {
+	if entry.URL != "" {
+		return entry.URL
+	}
+	return entry.latestURL()
 }
 
 // stagedGeofile is a verified download waiting to be moved into the asset folder.
@@ -2392,13 +2552,18 @@ func (s *ServerService) UpdateGeofile(fileName string) error {
 }
 
 // stageGeofileRelease downloads one upstream's databases and verifies each
-// against a digest from the same release, staging all of them or none.
+// against a digest from the same release, staging all of them or none. A
+// direct (no-release) upstream has no tag to pin, so tag stays empty.
 func (s *ServerService) stageGeofileRelease(client *http.Client, entries []geofileEntry, binFolder, stageDir string) ([]stagedGeofile, error) {
 	// Resolve "latest" once. These upstreams publish several times a day, and a
 	// release landing mid-batch would check one release's digest against another's bytes.
-	tag, err := resolveGeofileTag(client, entries[0].latestURL())
-	if err != nil {
-		return nil, common.NewErrorf("Error resolving Geofile release from %s: %v", entries[0].Repo, err)
+	tag := ""
+	if entries[0].URL == "" {
+		var err error
+		tag, err = resolveGeofileTag(client, entries[0].latestURL())
+		if err != nil {
+			return nil, common.NewErrorf("Error resolving Geofile release from %s: %v", entries[0].Repo, err)
+		}
 	}
 
 	var staged []stagedGeofile
@@ -2458,7 +2623,7 @@ func geofileTagFromLocation(location string) (string, error) {
 // stageGeofile downloads one database into stagePath and checks it against the
 // SHA-256 its upstream publishes. It reports false on 304, staging nothing.
 func (s *ServerService) stageGeofile(client *http.Client, entry geofileEntry, tag, destPath, stagePath string) (bool, error) {
-	assetURL := entry.taggedURL(tag)
+	assetURL := entry.assetURL(tag)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, assetURL, nil)
 	if err != nil {
 		return false, common.NewErrorf("Failed to create HTTP request for %s: %v", assetURL, err)
@@ -2521,16 +2686,46 @@ func (s *ServerService) stageGeofile(client *http.Client, entry geofileEntry, ta
 
 	// TLS protects the transport, not the artifact. Xray parses these databases
 	// when it builds its routing matchers, so a bad one takes the core down.
-	want, err := s.fetchGeofileDigest(client, assetURL+".sha256sum", entry.Asset)
-	if err != nil {
-		return false, err
-	}
-	if got := hex.EncodeToString(hasher.Sum(nil)); !strings.EqualFold(got, want) {
-		return false, common.NewErrorf("does not match the published SHA-256 checksum, so the download is corrupted or has been tampered with (expected %s, got %s)", want, got)
+	// Release upstreams prove the bytes with their published .sha256sum; a
+	// direct source publishes nothing of the sort, and its server has no
+	// Last-Modified either (no 304), so the staged bytes are instead compared
+	// with what already sits in the asset folder — identical content must not
+	// trigger a core restart that drops every live connection.
+	if entry.URL == "" {
+		want, err := s.fetchGeofileDigest(client, assetURL+".sha256sum", entry.Asset)
+		if err != nil {
+			return false, err
+		}
+		if got := hex.EncodeToString(hasher.Sum(nil)); !strings.EqualFold(got, want) {
+			return false, common.NewErrorf("does not match the published SHA-256 checksum, so the download is corrupted or has been tampered with (expected %s, got %s)", want, got)
+		}
+	} else if want, err := fileSHA256(destPath); err == nil {
+		if got := hex.EncodeToString(hasher.Sum(nil)); strings.EqualFold(got, want) {
+			_ = os.Remove(stagePath)
+			setModTime(destPath)
+			return false, nil
+		}
 	}
 
 	setModTime(stagePath)
 	return true, nil
+}
+
+// fileSHA256 returns the hex digest of a file, or "" when it does not exist.
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // fetchGeofileDigest downloads the .sha256sum sidecar published beside a geo

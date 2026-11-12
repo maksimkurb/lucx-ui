@@ -58,13 +58,6 @@ export default function CsqttFields() {
         <Input.Password autoComplete="new-password" />
       </FormField>
       <FormField
-        name={['settings', 'deviceId']}
-        label={t('pages.inbounds.form.csqttDeviceId')}
-        tooltip={t('pages.inbounds.form.csqttDeviceIdHint')}
-      >
-        <Input placeholder="device_id" autoComplete="off" />
-      </FormField>
-      <FormField
         name={['settings', 'subHost']}
         label={t('pages.inbounds.form.csqttSubHost')}
         tooltip={t('pages.inbounds.form.csqttSubHostHint')}
@@ -72,11 +65,26 @@ export default function CsqttFields() {
         <Input placeholder="1.2.3.4" />
       </FormField>
       <FormField
+        name={['settings', 'vkTokenInLink']}
+        label={t('pages.inbounds.form.csqttVkTokenInLink')}
+        tooltip={t('pages.inbounds.form.csqttVkTokenInLinkHint')}
+        valueProp="checked"
+      >
+        <Switch />
+      </FormField>
+      <FormField
         name={['settings', 'vkHashes']}
         label={t('pages.inbounds.form.csqttVkHashes')}
         tooltip={t('pages.inbounds.form.csqttVkHashesHint')}
       >
         <Input.TextArea rows={2} placeholder="hash1,hash2" />
+      </FormField>
+      <FormField
+        name={['settings', 'memberGroup']}
+        label={t('pages.inbounds.form.csqttMemberGroup')}
+        tooltip={t('pages.inbounds.form.csqttMemberGroupHint')}
+      >
+        <Input />
       </FormField>
     </>
   );

@@ -17,8 +17,12 @@ import (
 	"time"
 )
 
-// GatewayUFWAllow: SSH, 80, 443, panel/sub, and inbounds that stay public.
-func GatewayUFWAllow(webPort, subPort, sshPort int, rows []PreviewRow, selected map[int]bool, hidePanel bool) []string {
+// GatewayUFWAllow: SSH, 80, 443, panel/sub (unless hidden), and inbounds that
+// stay public. moved marks inbounds whose port is withdrawn behind the mask —
+// selected maskables, protocols hidden inside the site, and hidden naive.
+// Those ports must never re-appear here: Apply re-adds everything in this
+// list, so a leak here survives re-applying (lucx.297).
+func GatewayUFWAllow(webPort, subPort, sshPort int, rows []PreviewRow, moved map[int]bool, hidePanel bool) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(spec string) {
@@ -43,7 +47,7 @@ func GatewayUFWAllow(webPort, subPort, sshPort int, rows []PreviewRow, selected 
 		}
 	}
 	for _, r := range rows {
-		if selected[r.InboundID] && r.Class != ClassSkip {
+		if moved[r.InboundID] {
 			continue
 		}
 		port := r.OldPort
@@ -78,11 +82,12 @@ func ufwSSHSpec(spec string, sshPort int) bool {
 	return ok && (n == 22 || (sshPort > 0 && n == sshPort))
 }
 
-// GatewayUFWClose is the allow rules Apply must delete: masked inbound ports,
-// and the panel/sub ports when they are hidden. Ports that stay allowed are kept.
-func GatewayUFWClose(webPort, subPort, sshPort int, rows []PreviewRow, selected map[int]bool, hidePanel bool) []string {
+// GatewayUFWClose is the allow rules Apply must delete: the panel/sub ports
+// when they are hidden, and the ports of every moved inbound. Everything the
+// allow list keeps stays open.
+func GatewayUFWClose(webPort, subPort, sshPort int, rows []PreviewRow, moved map[int]bool, hidePanel bool) []string {
 	keep := map[string]bool{}
-	for _, spec := range GatewayUFWAllow(webPort, subPort, sshPort, rows, selected, hidePanel) {
+	for _, spec := range GatewayUFWAllow(webPort, subPort, sshPort, rows, moved, hidePanel) {
 		keep[spec] = true
 	}
 	seen := map[string]bool{}
@@ -97,13 +102,15 @@ func GatewayUFWClose(webPort, subPort, sshPort int, rows []PreviewRow, selected 
 	if hidePanel {
 		if webPort > 0 {
 			add(fmt.Sprintf("%d/tcp", webPort))
+			add(fmt.Sprintf("%d/udp", webPort))
 		}
 		if subPort > 0 {
 			add(fmt.Sprintf("%d/tcp", subPort))
+			add(fmt.Sprintf("%d/udp", subPort))
 		}
 	}
 	for _, r := range rows {
-		if !selected[r.InboundID] || r.Class == ClassSkip {
+		if !moved[r.InboundID] {
 			continue
 		}
 		for _, port := range []int{r.OldPort, r.NewPort} {
@@ -189,6 +196,13 @@ var (
 		}
 		return nil
 	}
+	ufwShowAdded = func() (string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, "ufw", "show", "added").Output()
+		// A missing or broken ufw simply skips the sweep (see ufwSweepClose).
+		return string(out), err
+	}
 	ufwInstall = func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
@@ -246,13 +260,18 @@ func ApplyUFW(allows, close []string) error {
 			return fmt.Errorf("ufw not installed, apt-get install failed: %w", err)
 		}
 	}
+	closed := map[int]bool{}
 	for _, spec := range close {
 		if ufwSSHSpec(spec, 22) {
 			continue
 		}
 		// Missing rule is not a failure: the port was never allowed.
 		_ = ufwRun("--force", "delete", "allow", spec)
+		if p, ok := ufwSpecPort(spec); ok {
+			closed[p] = true
+		}
 	}
+	ufwSweepClose(closed)
 	for _, a := range allows {
 		if err := ufwAllowSpec(a); err != nil {
 			return err
@@ -262,6 +281,85 @@ func ApplyUFW(allows, close []string) error {
 		return err
 	}
 	return ufwRun("--force", "enable")
+}
+
+// ufwPortToken parses a bare show-added token: "35347", "35347/tcp". A range
+// (p1:p2) counts as no single port — a close must not eat ports it does not
+// own.
+func ufwPortToken(tok string) (int, bool) {
+	if i := strings.IndexByte(tok, '/'); i >= 0 {
+		tok = tok[:i]
+	}
+	if strings.ContainsRune(tok, ':') {
+		return 0, false
+	}
+	n, err := strconv.Atoi(tok)
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+// ufwLineOpensPort parses a `ufw show added` line and reports whether it is an
+// incoming allow rule opening one of closed. The target port is the bare
+// first token (`allow [in] <port>[/proto]`) or the token after the last
+// `port` (`allow … to any port <p> proto tcp`); a `from port` source port and
+// application profiles never match. Verified against ufw 0.36.2.
+func ufwLineOpensPort(line string, closed map[int]bool) bool {
+	line = strings.TrimSpace(line)
+	rest, ok := strings.CutPrefix(line, "ufw allow")
+	if !ok {
+		return false
+	}
+	f := strings.Fields(rest)
+	if len(f) == 0 {
+		return false
+	}
+	i := 0
+	switch f[0] {
+	case "out":
+		return false
+	case "in", "log", "log-all":
+		i = 1
+	}
+	if len(f) > i {
+		if p, ok := ufwPortToken(f[i]); ok {
+			return closed[p]
+		}
+	}
+	// Full syntax: the to-section port is the token after the last "port".
+	for j := len(f) - 2; j >= i; j-- {
+		if f[j] == "port" {
+			if p, ok := ufwPortToken(f[j+1]); ok {
+				return closed[p]
+			}
+			break
+		}
+	}
+	return false
+}
+
+// ufwSweepClose deletes every remaining incoming-allow rule that opens one of
+// the closed ports in a form the per-spec deletes do not match: a manual bare
+// `ufw allow <port>` is stored as one proto-less rule — `delete allow
+// <port>/tcp` reports it non-existent — and full-syntax rules (sources,
+// `proto tcp to any port X`) never match either. `ufw show added` lines minus
+// the `ufw ` prefix are the exact `ufw delete` arguments. A missing read or an
+// undeletable rule is not an error, matching the per-spec loop.
+func ufwSweepClose(closed map[int]bool) {
+	if len(closed) == 0 {
+		return
+	}
+	out, err := ufwShowAdded()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if !ufwLineOpensPort(line, closed) {
+			continue
+		}
+		_ = ufwRun("--force", "delete", strings.TrimSpace(strings.TrimPrefix(line, "ufw ")))
+	}
 }
 
 // ufwAllowSpec keeps SSH as one 22/tcp rule. 22/udp is dropped: on some ufw

@@ -40,6 +40,7 @@ export const EXAMPLES: Record<string, unknown> = {
     "ldapUserFilter": "",
     "ldapVlessField": "",
     "logRetentionDays": 0,
+    "nodeDownThreshold": 1,
     "outboundDownThreshold": 1,
     "pageSize": 0,
     "panelOutbound": "",
@@ -69,6 +70,7 @@ export const EXAMPLES: Record<string, unknown> = {
     "subClashEnable": false,
     "subClashEnableRouting": false,
     "subClashPath": "",
+    "subClashRemoteDNS": false,
     "subClashRules": "",
     "subClashURI": "",
     "subClashUserAgentRegex": "",
@@ -102,6 +104,7 @@ export const EXAMPLES: Record<string, unknown> = {
     "subHappTunMode": "",
     "subHappTunType": "",
     "subHideSettings": false,
+    "subHostSortMode": "inbound-first",
     "subIncyAnnounceUrl": "",
     "subIncyAppAutoDetect": false,
     "subIncyBannerBgColor": "",
@@ -135,6 +138,7 @@ export const EXAMPLES: Record<string, unknown> = {
     "subInfoNodeEnable": false,
     "subJsonAlwaysArray": false,
     "subJsonAutoDetect": false,
+    "subJsonClientWarp": "",
     "subJsonDns": "",
     "subJsonEnable": false,
     "subJsonFinalMask": "",
@@ -233,6 +237,7 @@ export const EXAMPLES: Record<string, unknown> = {
     "ldapUserFilter": "",
     "ldapVlessField": "",
     "logRetentionDays": 0,
+    "nodeDownThreshold": 1,
     "outboundDownThreshold": 1,
     "pageSize": 0,
     "panelOutbound": "",
@@ -262,6 +267,7 @@ export const EXAMPLES: Record<string, unknown> = {
     "subClashEnable": false,
     "subClashEnableRouting": false,
     "subClashPath": "",
+    "subClashRemoteDNS": false,
     "subClashRules": "",
     "subClashURI": "",
     "subClashUserAgentRegex": "",
@@ -295,6 +301,7 @@ export const EXAMPLES: Record<string, unknown> = {
     "subHappTunMode": "",
     "subHappTunType": "",
     "subHideSettings": false,
+    "subHostSortMode": "inbound-first",
     "subIncyAnnounceUrl": "",
     "subIncyAppAutoDetect": false,
     "subIncyBannerBgColor": "",
@@ -328,6 +335,7 @@ export const EXAMPLES: Record<string, unknown> = {
     "subInfoNodeEnable": false,
     "subJsonAlwaysArray": false,
     "subJsonAutoDetect": false,
+    "subJsonClientWarp": "",
     "subJsonDns": "",
     "subJsonEnable": false,
     "subJsonFinalMask": "",
@@ -416,6 +424,10 @@ export const EXAMPLES: Record<string, unknown> = {
     "scope": "admin",
     "token": "new-token-string"
   },
+  "Blocker": {
+    "code": "tools",
+    "detail": "awg"
+  },
   "Client": {
     "adTag": "0123456789abcdef0123456789abcdef",
     "allowedIPs": [
@@ -423,6 +435,10 @@ export const EXAMPLES: Record<string, unknown> = {
     ],
     "allowedIPsByInbound": {},
     "auth": "",
+    "clientHostRuleIds": [
+      1,
+      2
+    ],
     "comment": "",
     "created_at": 0,
     "email": "",
@@ -432,8 +448,9 @@ export const EXAMPLES: Record<string, unknown> = {
     "forwardedPorts": "",
     "group": "",
     "id": "",
-    "keepAlive": "",
+    "keepAlive": 0,
     "limitIp": 0,
+    "neverLogIps": false,
     "password": "",
     "preSharedKey": "",
     "privateKey": "",
@@ -478,6 +495,7 @@ export const EXAMPLES: Record<string, unknown> = {
         ],
         "limitHwid": 0,
         "limitIp": 0,
+        "neverLogIps": false,
         "reset": 0,
         "resetDay": 0,
         "resetMax": 0,
@@ -512,6 +530,10 @@ export const EXAMPLES: Record<string, unknown> = {
     "adTag": "",
     "allowedIPs": "",
     "auth": "",
+    "clientHostRuleIds": [
+      1,
+      2
+    ],
     "comment": "",
     "createdAt": 0,
     "email": "",
@@ -521,9 +543,10 @@ export const EXAMPLES: Record<string, unknown> = {
     "forwardedPorts": "",
     "group": "",
     "id": 0,
-    "keepAlive": "",
+    "keepAlive": 0,
     "limitHwid": 0,
     "limitIp": 0,
+    "neverLogIps": false,
     "password": "",
     "preSharedKey": "",
     "privateKey": "",
@@ -578,6 +601,7 @@ export const EXAMPLES: Record<string, unknown> = {
     ],
     "limitHwid": 0,
     "limitIp": 0,
+    "neverLogIps": false,
     "reset": 0,
     "resetDay": 0,
     "resetMax": 0,
@@ -714,11 +738,16 @@ export const EXAMPLES: Record<string, unknown> = {
       ""
     ],
     "port": 8443,
+    "randomCount": 1,
     "remark": "cdn-front",
     "security": "same",
     "serverDescription": "",
     "shuffleHost": false,
     "sni": "",
+    "sniSharedRandom": false,
+    "snis": [
+      ""
+    ],
     "sockoptParams": null,
     "sortOrder": 0,
     "tags": [
@@ -763,11 +792,16 @@ export const EXAMPLES: Record<string, unknown> = {
       ""
     ],
     "port": 0,
+    "randomCount": 1,
     "remark": "",
     "security": "same",
     "serverDescription": "",
     "shuffleHost": false,
     "sni": "",
+    "sniSharedRandom": false,
+    "snis": [
+      ""
+    ],
     "sockoptParams": "",
     "sortOrder": 0,
     "tags": [
@@ -794,6 +828,7 @@ export const EXAMPLES: Record<string, unknown> = {
     "remaining": 1
   },
   "Inbound": {
+    "balancerOnly": false,
     "clientStats": [
       {
         "down": 2097152,
@@ -882,7 +917,9 @@ export const EXAMPLES: Record<string, unknown> = {
     "tuicServer": null,
     "wgDns": "",
     "wgMtu": 0,
-    "wgPublicKey": ""
+    "wgObfuscation": "",
+    "wgPublicKey": "",
+    "wgosocksConfig": ""
   },
   "InboundTrafficSummary": {
     "down": 2097152,
@@ -954,6 +991,9 @@ export const EXAMPLES: Record<string, unknown> = {
     "status": "online",
     "tlsVerifyMode": "verify",
     "transitive": false,
+    "unavailableMetrics": [
+      ""
+    ],
     "updatedAt": 1700000000,
     "uptimeSecs": 86400,
     "xrayError": "",
@@ -1024,6 +1064,9 @@ export const EXAMPLES: Record<string, unknown> = {
     "status": "online",
     "tlsVerifyMode": "verify",
     "transitive": false,
+    "unavailableMetrics": [
+      ""
+    ],
     "updatedAt": 1700003600,
     "uptimeSecs": 86400,
     "xrayError": "",
@@ -1078,10 +1121,23 @@ export const EXAMPLES: Record<string, unknown> = {
     "memPct": 45.2,
     "panelVersion": "v3.x.x",
     "status": "online",
+    "unavailableMetrics": [
+      ""
+    ],
     "uptimeSecs": 86400,
     "xrayError": "",
     "xrayState": "",
     "xrayVersion": "25.10.31"
+  },
+  "Readiness": {
+    "blockers": [
+      {
+        "code": "tools",
+        "detail": "awg"
+      }
+    ],
+    "installCommand": "sudo /usr/local/x-ui/x-ui install-awg-kernel",
+    "ready": false
   },
   "RealityScanResult": {
     "alpn": "h2",
@@ -1129,6 +1185,7 @@ export const EXAMPLES: Record<string, unknown> = {
     "jmax": 0,
     "jmin": 0,
     "keepaliveTimeout": "",
+    "kernelMode": false,
     "maxHandshakeAttempts": "",
     "mtu": 0,
     "primaryDns": "",
@@ -1198,6 +1255,12 @@ export const EXAMPLES: Record<string, unknown> = {
     "sortOrder": 1,
     "strategy": "random",
     "updatedAt": 1710000000000
+  },
+  "TgBotCapabilities": {
+    "groupPrivacy": false,
+    "inlineEnabled": true,
+    "running": true,
+    "username": "xui_bot"
   },
   "Traffic": {
     "Down": 2097152,

@@ -82,6 +82,12 @@ chmod +x x-ui/x-ui
 cp x-ui.service.debian x-ui.service.arch x-ui.service.rhel x-ui.sh x-ui/
 cp bin/install-awg-module.sh x-ui/bin/
 cp bin/lucx-acme.sh x-ui/bin/
+# LUCX: aivpn-server refuses to start without mask profiles; the vendored
+# upstream JSONs (third_party/sidecars/masks, pinned aivpn release) ship in
+# every panel tarball at bin/tunnel/aivpn-masks — the mask_dir the panel
+# renders in server.json.
+mkdir -p x-ui/bin/tunnel/aivpn-masks
+cp -f third_party/sidecars/masks/*.json x-ui/bin/tunnel/aivpn-masks/
 
 cd x-ui/bin
 Xray_URL="https://github.com/XTLS/Xray-core/releases/download/v26.7.28/"
@@ -118,6 +124,8 @@ geoip_RU.dat|https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/lat
 geosite_RU.dat|https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat
 geoip_ROSCOM.dat|https://github.com/hydraponique/roscomvpn-geoip/releases/latest/download/geoip.dat
 geosite_ROSCOM.dat|https://github.com/hydraponique/roscomvpn-geosite/releases/latest/download/geosite.dat
+geoip_GA.dat|https://raw.githubusercontent.com/Ground-Zerro/Geo-Aggregator/main/geodat/geoip_GA.dat
+geosite_GA.dat|https://raw.githubusercontent.com/Ground-Zerro/Geo-Aggregator/main/geodat/geosite_GA.dat
 GEO
     tar -czf "${dest}" -C "${tmp}" .
     rm -rf "${tmp}"
@@ -212,17 +220,11 @@ mv "/tmp/mieru-client-linux-${ARCH}" "mieru-client-linux-${ARCH}"
 chmod +x "mieru-linux-${ARCH}" "mieru-client-linux-${ARCH}"
 rm -rf /tmp/mieru
 
-TT_VER="v1.1.0"
 TT_CLIENT_VER="v1.1.5"
-TT_TGZ="trusttunnel-${TT_VER}-linux-x86_64.tar.gz"
 TT_CLIENT_TGZ="trusttunnel_client-${TT_CLIENT_VER}-linux-x86_64.tar.gz"
-fetch -O "${TT_TGZ}" "https://github.com/TrustTunnel/TrustTunnel/releases/download/${TT_VER}/${TT_TGZ}"
-mkdir -p /tmp/trusttunnel
-tar -xzf "${TT_TGZ}" -C /tmp/trusttunnel
-TT_BIN=$(find /tmp/trusttunnel -type f -name trusttunnel_endpoint | head -n1)
-mv "$TT_BIN" "trusttunnel-linux-${ARCH}"
-chmod +x "trusttunnel-linux-${ARCH}"
-rm -rf /tmp/trusttunnel "${TT_TGZ}"
+# LUCX: the endpoint is built with the PROXY v1 patch (same version as the
+# GitHub release), so client IPs survive the SNI gateway.
+bash "$(cd ../.. && pwd)/bin/build-trusttunnel.sh" "${ARCH}" "$PWD"
 fetch -O "${TT_CLIENT_TGZ}" "https://github.com/TrustTunnel/TrustTunnelClient/releases/download/${TT_CLIENT_VER}/${TT_CLIENT_TGZ}"
 mkdir -p /tmp/ttclient
 tar -xzf "${TT_CLIENT_TGZ}" -C /tmp/ttclient
@@ -238,6 +240,8 @@ git -C /tmp/anytls remote add origin https://github.com/anytls/anytls-go.git
 git -C /tmp/anytls fetch -q --depth 1 origin "${ANYTLS_REF}"
 git -C /tmp/anytls checkout -q FETCH_HEAD
 cp "${ANYTLS_OVERLAY}" /tmp/anytls/cmd/server/main.go
+cp "$(cd ../.. && pwd)/third_party/patches/anytls-server-inbound_tcp.go.overlay" /tmp/anytls/cmd/server/inbound_tcp.go
+cp "$(cd ../.. && pwd)/third_party/patches/anytls-server-users.go.overlay" /tmp/anytls/cmd/server/users.go
 (
     cd /tmp/anytls
     GOTOOLCHAIN=auto CGO_ENABLED=0 GOOS=linux GOARCH="${ARCH}" go build -trimpath -ldflags="-s -w" -o "/tmp/anytls-linux-${ARCH}" ./cmd/server

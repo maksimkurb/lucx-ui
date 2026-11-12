@@ -161,7 +161,7 @@ A kernel sidecar (like 3x-ui's MTProto `mtg`) means AWG runs as a real kernel in
 - **Route through Xray (optional)** — toggle makes Caddy dial destinations via a hidden loopback SOCKS bridge (`upstream socks5://127.0.0.1:…`, native forward_proxy — no binary patch) tagged `lucx-tunnel-naive`, so NaiveProxy traffic gets full Xray routing / sniffing / domain rules (same pattern as MTProto). Default stays direct egress.
 - **olcRTC** — TCP-over-WebRTC tunnel via a legal video-call room ([openlibrecommunity/olcrtc](https://github.com/openlibrecommunity/olcrtc), WTFPL): Jitsi / Yandex Telemost / WB Stream. No public ports on the VPS — the binary joins the room as a silent participant. Panel renders server YAML, supervises the process, and exposes a copyable `olcrtc://` connect URI for owenclave / olcbox clients.
 - **qWDTT** — WireGuard tunnelled through VK Calls TURN relays ([SpaceNeuroX/proxy-turn-vk-android](https://github.com/SpaceNeuroX/proxy-turn-vk-android), GPL-3.0 server). Requires root (TUN + NAT). Panel supervises the process, exposes `qwdtt://` / `wdtt://` URIs and subscription JSON for the Android client. Operator supplies live VK call hashes.
-- **CSQTT** — TURN/RTP tunnel ([amurcanov/csqtt](https://github.com/amurcanov/csqtt), PolyForm NC). Not wire-compatible with qWDTT (not on the same host). One password = one device. Share `csqtt://connect?v=2…`. Clients: CSQTT Android APK; iOS [anton48/vk-turn-proxy-ios](https://github.com/anton48/vk-turn-proxy-ios) in CSQTT mode. LucX commercial grant does not cover CSQTT.
+- **CSQTT** — TURN/RTP tunnel ([amurcanov/csqtt](https://github.com/amurcanov/csqtt), PolyForm NC). Not wire-compatible with qWDTT (not on the same host). One password = one device. Share `csqtt://…` — encrypted with AES-256-GCM since core 2.5.0 (the password never travels in plaintext). Clients: CSQTT Android APK; iOS [anton48/vk-turn-proxy-ios](https://github.com/anton48/vk-turn-proxy-ios) in CSQTT mode. LucX commercial grant does not cover CSQTT.
 - **mieru** — censorship-resistant proxy over a custom protocol instead of TLS ([enfein/mieru](https://github.com/enfein/mieru) `mita`, GPL-3.0). Multi-client with per-panel-client HMAC credentials, per-client traffic & online accounting, and a `mierus://` share link. Clients: mieru CLI, mihomo, Clash Verge Rev, husi, Exclave.
 - **TrustTunnel** — the AdGuard VPN protocol ([TrustTunnel/TrustTunnel](https://github.com/TrustTunnel/TrustTunnel), Apache-2.0): traffic indistinguishable from HTTPS (HTTP/1.1 + HTTP/2 + QUIC). Reuses the panel's ACME certificate (needs a domain with an issued cert), emits a `tt://?` deep link for the Flutter / CLI clients.
 - **Telegram WEB proxy (`tproxy`)** — `tproxy-server` + official MTProxy + Caddy TLS reverse_proxy on `hostname:443`, share link `t.me/webproxy`. Route-through-Xray is currently **parked** (direct MTProxy egress; see lucx.211).
@@ -288,7 +288,7 @@ LucX-UI stands on the shoulders of many open-source projects and people. Thank y
 The same list is shown on the panel's Sponsors page (`/panel/sponsors`).
 
 - **Handshake**: **VladufQa**, **пётр смолин** (Pyotr Smolin)
-- **Pong**: **Сила Растений** (Sila Rasteniy), **Виталий Зайцев** (Vitaly Zaytsev)
+- **Pong**: **Сила Растений** (Sila Rasteniy), **Mr. Zaic**
 - **Ping**: **Камслат Глорихо** (Kamslat Glorixo), **Михаил Ляшенко** (Mikhail Lyashenko)
 - Subscribers: **Игорь** (Igor), **Aleksandr S.**
 
@@ -321,6 +321,7 @@ The same list is shown on the panel's Sponsors page (`/panel/sponsors`).
 | [hydraponique/3x-ui](https://github.com/hydraponique/3x-ui), [roscomvpn-geoip](https://github.com/hydraponique/roscomvpn-geoip), [roscomvpn-geosite](https://github.com/hydraponique/roscomvpn-geosite), [roscomvpn-routing](https://github.com/hydraponique/roscomvpn-routing) | RoscomVPN geo pack + Happ routing profiles | Upstream |
 | [Loyalsoldier/v2ray-rules-dat](https://github.com/Loyalsoldier/v2ray-rules-dat), [chocolate4u/Iran-v2ray-rules](https://github.com/chocolate4u/Iran-v2ray-rules), [runetfreedom/russia-v2ray-rules-dat](https://github.com/runetfreedom/russia-v2ray-rules-dat) | Stock geoip/geosite datasets | Upstream |
 | [pumbaX/awg-multi-script](https://github.com/pumbaX/awg-multi-script), [hoaxisr/awg-manager](https://github.com/hoaxisr/awg-manager) | AWG ops inspiration | — |
+| [phenomenonRT](https://github.com/phenomenonRT), [mimicry generator phenomenonrt.github.io/generatorM](https://phenomenonrt.github.io/generatorM/) | AWG preset for Minecraft Bedrock (RakNet): the `minecraft` cps profiles | — |
 | [bogdanfinn/tls-client](https://github.com/bogdanfinn/tls-client), [refraction-networking/utls](https://github.com/refraction-networking/utls) | TLS fingerprint references for CPS | — |
 
 </details>

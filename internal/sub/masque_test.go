@@ -7,6 +7,7 @@ import (
 	"net"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 
 	xnet "github.com/xtls/xray-core/common/net"
@@ -87,6 +88,41 @@ func TestGetInboundsBySubIdIncludesMasque(t *testing.T) {
 	}
 	if len(inbounds) != 1 || inbounds[0].Id != in.Id {
 		t.Fatalf("masque inbound not returned for subId: %+v", inbounds)
+	}
+}
+
+func TestSubscriptionIncludesTproxyInbound(t *testing.T) {
+	initSubDB(t)
+	db := database.GetDB()
+	in := &model.Inbound{Port: 8444, Protocol: model.Tproxy, Enable: true, Tag: "tproxy-sub", Settings: `{"hostname":"proxy.example.com","secret":"000102030405060708090a0b0c0d0e0f"}`}
+	if err := db.Create(in).Error; err != nil {
+		t.Fatal(err)
+	}
+	rec := &model.ClientRecord{Email: "tproxy@example.test", SubID: "tproxy-sub", Enable: true}
+	if err := db.Create(rec).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.ClientInbound{ClientId: rec.Id, InboundId: in.Id}).Error; err != nil {
+		t.Fatal(err)
+	}
+	inbounds, err := (&SubService{}).getInboundsBySubId(rec.SubID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inbounds) != 1 || inbounds[0].Id != in.Id {
+		t.Fatalf("WEB proxy inbound missing from subscription: %+v", inbounds)
+	}
+	links, _, _, _, err := (&SubService{}).GetSubs(rec.SubID, "sub.example.com")
+	if err != nil || len(links) != 1 || !strings.Contains(links[0], "https://t.me/webproxy?") {
+		t.Fatalf("WEB proxy subscription links = %v, err = %v", links, err)
+	}
+	in.Settings = `{"hostname":"proxy.example.com","secret":"000102030405060708090a0b0c0d0e0f","backend":"mtproto-zig"}`
+	if err := db.Model(in).Update("settings", in.Settings).Error; err != nil {
+		t.Fatal(err)
+	}
+	links, _, _, _, err = (&SubService{}).GetSubs(rec.SubID, "sub.example.com")
+	if err != nil || len(links) != 1 || !strings.Contains(links[0], "https://t.me/webproxy?") {
+		t.Fatalf("Zig WEB proxy subscription links = %v, err = %v", links, err)
 	}
 }
 

@@ -12,6 +12,7 @@
 //   - qWDTT — SpaceNeuroX wdtt-server (WireGuard over VK TURN)
 //   - CSQTT — amurcanov/csqtt rust-server (TURN/RTP; not qWDTT)
 //   - OpenFlux — p1neappleXpress/OpenFlux exit (l4 gVisor; GPL-3.0 external process)
+//   - AIVPN — infosave2007/aivpn anti-DPI UDP VPN gateway (MIT; external process)
 //
 // Each core is one supervised process with a panel-rendered config file (or
 // CLI args), an isolated data directory and a health probe (process alive;
@@ -21,6 +22,7 @@ package tunnel
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -52,6 +54,20 @@ const Qwdtt Name = "qwdtt"
 // Binary is an external process — not linked into the panel.
 const Csqtt Name = "csqtt"
 
+// Aivpn is the AIVPN core: infosave2007/aivpn aivpn-server (MIT) — an
+// anti-DPI UDP VPN gateway whose packets are masked as STUN / QUIC / ICE
+// media flows. Multi-client, clients are managed through the core's
+// management unix-socket HTTP API. Needs root (TUN + NAT, installed by the
+// core itself). Binary is an external process — not linked into the panel.
+const Aivpn Name = "aivpn"
+
+// Masterdns is the MasterDNSVPN DNS-tunnel server (masterking32/MasterDnsVPN,
+// MIT-family license). UDP authoritative-DNS sidecar: the tunnel domain's NS
+// record delegates to the panel host, queries carry the encrypted egress. The
+// decoded SOCKS egress goes through the Xray loopback bridge (routed) or out
+// of the host directly. Binary name masterdns-os-arch.
+const Masterdns Name = "masterdns"
+
 // Openflux is the OpenFlux exit (p1neappleXpress/OpenFlux, GPL-3.0).
 // External process, not linked. l4 only — no kernel RST drop. One active
 // client per process. Binary name openflux-os-arch.
@@ -78,6 +94,19 @@ const Anytls Name = "anytls"
 // + Caddy TLS reverse_proxy). Share: https://t.me/webproxy?server=&secret=.
 // Mtproxy / TproxyCaddy are the companion processes of one tproxy inbound.
 
+// Wgo is the wgobfs engine serving WireGuard transport obfuscation presets
+// on a kernel WireGuard inbound (mode=wireguard sections). Wgosocks is the
+// same binary as a SOCKS5-exit inbound (mode=socks5, role=server). Engine:
+// Ground-Zerro/Phobos src/phobos-obfuscator (GPL-3.0 external process,
+// derived from ClusterM/wg-obfuscator) — the qWDTT/MTProxy precedent. Both
+// cores share one binary (wgobfs-os-arch), the caddy-naive precedent.
+const (
+	Wgo        Name = "wgo"
+	Wgosocks   Name = "wgosocks"
+	Telemt     Name = "telemt"
+	MtprotoZig Name = "mtprotozig"
+)
+
 // Client-mode cores (outbound sidecars). Distinct Name values so BinaryName
 // never collides with inbound servers (caddy-naive / mita / trusttunnel_endpoint)
 // and ReconcileWanted prefixes (naive- / mieru- / trusttunnel-) never sweep
@@ -90,7 +119,7 @@ const (
 
 // All returns the supported INBOUND core names in display order.
 func All() []Name {
-	return []Name{Naive, Olcrtc, Qwdtt, Csqtt, Mieru, TrustTunnel, Anytls, Tproxy, Mtproxy, TproxyCaddy, Cover, Gateway, Openflux}
+	return []Name{Naive, Olcrtc, Qwdtt, Csqtt, Masterdns, Aivpn, Mieru, TrustTunnel, Anytls, Tproxy, Mtproxy, Telemt, MtprotoZig, TproxyCaddy, Cover, Gateway, Openflux, Wgosocks}
 }
 
 // ClientCores returns outbound-client binary names (orphan sweep + Cores UI).
@@ -101,7 +130,7 @@ func ClientCores() []Name {
 // Valid reports whether n is one of the supported core names.
 func (n Name) Valid() bool {
 	switch n {
-	case Naive, Olcrtc, Qwdtt, Csqtt, Openflux, Mieru, TrustTunnel, Anytls, Tproxy, Mtproxy, TproxyCaddy, Cover, Gateway, NaiveClient, MieruClient, TrustTunnelClient:
+	case Naive, Olcrtc, Qwdtt, Csqtt, Masterdns, Aivpn, Openflux, Mieru, TrustTunnel, Anytls, Tproxy, Mtproxy, Telemt, MtprotoZig, TproxyCaddy, Cover, Gateway, Wgo, Wgosocks, NaiveClient, MieruClient, TrustTunnelClient:
 		return true
 	}
 	return false
@@ -118,6 +147,10 @@ func (n Name) DisplayName() string {
 		return "qWDTT"
 	case Csqtt:
 		return "CSQTT"
+	case Masterdns:
+		return "MasterDnsVPN"
+	case Aivpn:
+		return "AIVPN"
 	case Openflux:
 		return "OpenFlux"
 	case Mieru:
@@ -130,6 +163,10 @@ func (n Name) DisplayName() string {
 		return "Telegram WEB proxy"
 	case Mtproxy:
 		return "MTProxy"
+	case Telemt:
+		return "Telemt (LucX)"
+	case MtprotoZig:
+		return "MTProto Zig WEB"
 	case TproxyCaddy:
 		return "Caddy (tproxy)"
 	case Cover:
@@ -142,6 +179,10 @@ func (n Name) DisplayName() string {
 		return "mieru client"
 	case TrustTunnelClient:
 		return "TrustTunnel client"
+	case Wgo:
+		return "WG obfuscator"
+	case Wgosocks:
+		return "WG obfuscator SOCKS5"
 	default:
 		return string(n)
 	}
@@ -163,6 +204,13 @@ func (n Name) BinaryName() string {
 		name = fmt.Sprintf("mieru-client-%s-%s", runtime.GOOS, runtime.GOARCH)
 	case TrustTunnelClient:
 		name = fmt.Sprintf("trusttunnel-client-%s-%s", runtime.GOOS, runtime.GOARCH)
+	case Wgo, Wgosocks:
+		// One wgobfs binary serves both cores (Phobos fork of wg-obfuscator).
+		name = fmt.Sprintf("wgobfs-%s-%s", runtime.GOOS, runtime.GOARCH)
+	case Telemt:
+		name = fmt.Sprintf("telemt-%s-%s", runtime.GOOS, runtime.GOARCH)
+	case MtprotoZig:
+		name = fmt.Sprintf("mtproto-zig-%s-%s", runtime.GOOS, runtime.GOARCH)
 	default:
 		name = fmt.Sprintf("%s-%s-%s", string(n), runtime.GOOS, runtime.GOARCH)
 	}
@@ -189,6 +237,42 @@ func workDir() string {
 	return tunnelDir()
 }
 
+// mkdirPrivate creates a sidecar's private (0700) dir under workDir. The
+// shared workDir is created first with 0755: MkdirAll would otherwise give a
+// missing workDir the same 0700, and a sidecar running under another uid
+// (routed AnyTLS, lucx-mtproxy) could no longer reach its files in it. Seen
+// on fresh installs, where an AnyTLS data dir is the first thing created.
+func mkdirPrivate(dir string) error {
+	if err := os.MkdirAll(workDir(), 0o755); err != nil {
+		return err
+	}
+	return os.MkdirAll(dir, 0o700)
+}
+
+// ensureWorkDirTraversable lets another uid enter workDir (execute bit for
+// group and others, no listing) when an earlier build created it 0700.
+func ensureWorkDirTraversable() error {
+	st, err := os.Stat(workDir())
+	if err != nil {
+		return err
+	}
+	if m := st.Mode().Perm(); m&0o011 != 0o011 {
+		return os.Chmod(workDir(), m|0o011)
+	}
+	return nil
+}
+
+// absWorkDir resolves workDir() against the process working directory. The
+// default XUI_BIN_FOLDER is the relative "bin" (install.sh resolves it the
+// same way), so LucX-managed dirs must be absolutized before any
+// rejectLocalPath check such as RequireIndexHTML.
+func absWorkDir() string {
+	if abs, err := filepath.Abs(workDir()); err == nil {
+		return abs
+	}
+	return workDir()
+}
+
 // configPath returns the rendered config file path of one core (legacy single-
 // instance layout used by olcRTC / qWDTT and the pre-inbound global Naive).
 func configPath(n Name) string {
@@ -197,6 +281,8 @@ func configPath(n Name) string {
 		return filepath.Join(workDir(), "naive.caddyfile")
 	case Olcrtc:
 		return filepath.Join(workDir(), "olcrtc.yaml")
+	case Aivpn:
+		return filepath.Join(workDir(), "aivpn.json")
 	default:
 		return filepath.Join(workDir(), string(n)+".conf")
 	}

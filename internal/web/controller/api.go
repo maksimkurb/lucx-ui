@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
+	"github.com/mhsanaei/3x-ui/v3/internal/lucx/plugin" // LUCX-HOOK: stage 3c panel API seam
 	"github.com/mhsanaei/3x-ui/v3/internal/web/middleware"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/service/panel"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/service/tgbot"
@@ -38,30 +39,45 @@ func NewAPIController(g *gin.RouterGroup) *APIController {
 }
 
 func (a *APIController) checkAPIAuth(c *gin.Context) {
-	// A verified client certificate (a completed mTLS handshake) authenticates
-	// the caller, equivalent to a valid bearer token. api_authed must be set so
-	// the CSRF middleware lets cert-authed mutations through.
-	if c.Request.TLS != nil && len(c.Request.TLS.VerifiedChains) > 0 {
+	setAuthenticated := func(scope string) {
 		if u, err := a.userService.GetFirstUser(); err == nil {
 			session.SetAPIAuthUser(c, u)
 		}
 		c.Set("api_authed", true)
-		c.Set("api_token_scope", model.ApiScopeNodeSync)
+		c.Set("api_token_scope", scope)
+	}
+	matchedScope := ""
+	pluginID := ""
+	if after, ok := strings.CutPrefix(c.GetHeader("Authorization"), "Bearer "); ok {
+		if row, matched := a.apiTokenService.MatchToken(after); matched {
+			matchedScope = row.Scope
+		} else if id, pluginMatched := plugin.MatchPanelToken(after); pluginMatched {
+			// LUCX-HOOK: stage 3c panel API seam — a plugin's scoped
+			// credential authenticates the call to its own permission matrix.
+			pluginID = id
+			matchedScope = model.ApiScopePlugin
+		}
+	}
+	// Verified mTLS keeps its historical node-sync identity. Only an explicit
+	// node-admin bearer elevates it to software-update authority.
+	if c.Request.TLS != nil && len(c.Request.TLS.VerifiedChains) > 0 {
+		scope := model.ApiScopeNodeSync
+		if matchedScope == model.ApiScopeNodeAdmin {
+			scope = model.ApiScopeNodeAdmin
+		}
+		setAuthenticated(scope)
 		c.Next()
 		return
 	}
-	auth := c.GetHeader("Authorization")
-	if after, ok := strings.CutPrefix(auth, "Bearer "); ok {
-		tok := after
-		if row, ok := a.apiTokenService.MatchToken(tok); ok {
-			if u, err := a.userService.GetFirstUser(); err == nil {
-				session.SetAPIAuthUser(c, u)
-			}
-			c.Set("api_authed", true)
-			c.Set("api_token_scope", row.Scope)
-			c.Next()
-			return
+	if matchedScope != "" {
+		setAuthenticated(matchedScope)
+		if pluginID != "" {
+			// END LUCX-HOOK: the enforcement middleware resolves the plugin's
+			// manifest matrix by id; api_authed alone must not grant it.
+			c.Set("plugin_id", pluginID)
 		}
+		c.Next()
+		return
 	}
 	if !session.IsLogin(c) {
 		// A presented Bearer token is not an anonymous scan: return 401 so
@@ -121,9 +137,25 @@ var nodeSyncScopeAllow = map[string]map[string]struct{}{
 	"/server/clientIps":            {http.MethodGet: {}, http.MethodPost: {}},
 	"/clients/clientIpsByGuid":     {http.MethodPost: {}},
 	"/hosts/list":                  {http.MethodGet: {}},
+	// LUCX-HOOK: node cert/site/port check for tproxy, cover, anytls, trusttunnel
+	"/tunnel/hostCheck": {http.MethodPost: {}},
+	// END LUCX-HOOK
 }
 
-// enforceTokenScope applies explicit allowlists to monitor and node-sync tokens.
+var nodeAdminScopeAllow = map[string]map[string]struct{}{
+	"/server/updatePanel": {http.MethodPost: {}},
+}
+
+func scopeAllows(allow map[string]map[string]struct{}, path, method string) bool {
+	methods, exists := allow[path]
+	if !exists {
+		return false
+	}
+	_, exists = methods[method]
+	return exists
+}
+
+// enforceTokenScope applies explicit allowlists to restricted API tokens.
 // Admin tokens and session-login users retain their existing behavior.
 func (a *APIController) enforceTokenScope(c *gin.Context) {
 	scopeVal, ok := c.Get("api_token_scope")
@@ -150,11 +182,21 @@ func (a *APIController) enforceTokenScope(c *gin.Context) {
 			return
 		}
 	case model.ApiScopeNodeSync:
-		if methods, allowed := nodeSyncScopeAllow[rel]; allowed {
-			if _, allowedMethod := methods[c.Request.Method]; allowedMethod {
-				c.Next()
-				return
-			}
+		if scopeAllows(nodeSyncScopeAllow, rel, c.Request.Method) {
+			c.Next()
+			return
+		}
+	case model.ApiScopeNodeAdmin:
+		if scopeAllows(nodeSyncScopeAllow, rel, c.Request.Method) || scopeAllows(nodeAdminScopeAllow, rel, c.Request.Method) {
+			c.Next()
+			return
+		}
+	// LUCX-HOOK: stage 3c panel API seam — plugin tokens resolve against the
+	// plugin's own manifest matrix and the never-reachable route list.
+	case model.ApiScopePlugin:
+		if plugin.PluginPanelAllowed(c.GetString("plugin_id"), rel, c.Request.Method) {
+			c.Next()
+			return
 		}
 	default:
 		deny()
@@ -181,7 +223,7 @@ func (a *APIController) initRouter(g *gin.RouterGroup) {
 	// Decode + verify the node config envelope (zstd + X-Config-Sha256) and
 	// advertise support, before CSRF/handlers read the body.
 	api.Use(middleware.ConfigEnvelopeMiddleware())
-	api.Use(middleware.CSRFMiddleware())
+	api.Use(middleware.CSRFMiddleware(getRemoteIp))
 
 	api.GET("/openapi.json", ServeOpenAPISpec)
 
@@ -198,10 +240,19 @@ func (a *APIController) initRouter(g *gin.RouterGroup) {
 	// LUCX-HOOK: Tunnel sidecars (NaiveProxy) — config/lifecycle/logs API.
 	// Routes live under /panel/api/tunnel/*.
 	a.tunnelController = NewTunnelController(api.Group("/tunnel"))
+	RegisterPluginRoutes(api.Group("/plugins"))
 	// END LUCX-HOOK
 	// LUCX-HOOK: LucX capability probe for multi-node deploy gating.
 	// Masters call GET /panel/api/lucx/hello on remotes to learn nodeType/features.
 	_ = NewLucxController(api.Group("/lucx"))
+	// END LUCX-HOOK
+	// LUCX-HOOK: Scanner guard — ipset banning of RKN scanner subnets.
+	// Routes live under /panel/api/scanguard/*.
+	_ = NewScanguardController(api.Group("/scanguard"))
+	// END LUCX-HOOK
+	// LUCX-HOOK: Clean IP — on-demand Cloudflare edge reachability scanner.
+	// Routes live under /panel/api/cleanip/*.
+	_ = NewCleanIpController(api.Group("/cleanip"))
 	// END LUCX-HOOK
 
 	clients := api.Group("/clients")

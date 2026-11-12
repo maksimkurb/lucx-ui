@@ -44,6 +44,13 @@ const DEFAULT_BLOCK_RULES: SubJsonRule[] = [
 ];
 const BLOCK_IP_RULE: SubJsonRule = { type: 'field', outboundTag: 'block', ip: [] };
 
+// LUCX-HOOK: client-side WARP switch mirrors the backend default config (lucx.342)
+// Mirrors clientwarp.DefaultConfig on the backend.
+const DEFAULT_CLIENT_WARP = {
+  domains: ['geosite:youtube'],
+  endpoints: ['162.159.192.1:4500', '8.39.214.9:4177'],
+};
+
 const directIPsOptions = [
   { label: 'Private IP', value: 'geoip:private' },
   { label: '🇮🇷 Iran', value: 'geoip:ir' },
@@ -158,7 +165,11 @@ export default function SubscriptionFormatsTab({
       items={[
         {
           key: '1',
-          label: catTabLabel(<SettingOutlined />, t('pages.settings.panelSettings'), isMobile),
+          label: catTabLabel(
+            <SettingOutlined aria-hidden />,
+            t('pages.settings.panelSettings'),
+            isMobile,
+          ),
           children: (
             <div className="subscription-format-sections">
               {allSetting.subJsonEnable && (
@@ -167,7 +178,7 @@ export default function SubscriptionFormatsTab({
                   className="subscription-format-card"
                   title={
                     <span className="subscription-format-card-title">
-                      <FileTextOutlined />
+                      <FileTextOutlined aria-hidden />
                       {t('pages.settings.subJsonEnableTitle')}
                     </span>
                   }
@@ -253,6 +264,35 @@ export default function SubscriptionFormatsTab({
                       autoSize={{ minRows: 2, maxRows: 6 }}
                     />
                   </SettingListItem>
+                  {/* LUCX-HOOK: client-side WARP (lucx.342) */}
+                  <SettingListItem
+                    paddings="small"
+                    title={t('pages.settings.subJsonClientWarp')}
+                    description={t('pages.settings.subJsonClientWarpDesc')}
+                  >
+                    <Switch
+                      checked={allSetting.subJsonClientWarp !== ''}
+                      onChange={(v) =>
+                        updateSetting({
+                          subJsonClientWarp: v ? JSON.stringify(DEFAULT_CLIENT_WARP) : '',
+                        })
+                      }
+                    />
+                  </SettingListItem>
+                  {allSetting.subJsonClientWarp !== '' && (
+                    <SettingListItem
+                      paddings="small"
+                      title={t('pages.settings.subJsonClientWarpConfig')}
+                      description={t('pages.settings.subJsonClientWarpConfigDesc')}
+                    >
+                      <Input.TextArea
+                        value={allSetting.subJsonClientWarp}
+                        onChange={(e) => updateSetting({ subJsonClientWarp: e.target.value })}
+                        autoSize={{ minRows: 2, maxRows: 8 }}
+                      />
+                    </SettingListItem>
+                  )}
+                  {/* END LUCX-HOOK */}
                 </Card>
               )}
               {allSetting.subClashEnable && (
@@ -261,7 +301,7 @@ export default function SubscriptionFormatsTab({
                   className="subscription-format-card"
                   title={
                     <span className="subscription-format-card-title">
-                      <NodeIndexOutlined />
+                      <NodeIndexOutlined aria-hidden />
                       {t('pages.settings.subClashEnableTitle')}
                     </span>
                   }
@@ -359,7 +399,7 @@ export default function SubscriptionFormatsTab({
         {
           key: '2',
           label: catTabLabel(
-            <RocketOutlined />,
+            <RocketOutlined aria-hidden />,
             t('pages.settings.subFormats.finalMask'),
             isMobile,
           ),
@@ -379,7 +419,7 @@ export default function SubscriptionFormatsTab({
         },
         {
           key: '3',
-          label: catTabLabel(<PartitionOutlined />, t('pages.settings.mux'), isMobile),
+          label: catTabLabel(<PartitionOutlined aria-hidden />, t('pages.settings.mux'), isMobile),
           children: (
             <>
               <SettingListItem
@@ -433,7 +473,7 @@ export default function SubscriptionFormatsTab({
         },
         {
           key: '4',
-          label: catTabLabel(<SendOutlined />, t('pages.settings.direct'), isMobile),
+          label: catTabLabel(<SendOutlined aria-hidden />, t('pages.settings.direct'), isMobile),
           children: (
             <>
               <SettingListItem
@@ -482,7 +522,7 @@ export default function SubscriptionFormatsTab({
         },
         {
           key: '5',
-          label: catTabLabel(<StopOutlined />, t('pages.settings.block'), isMobile),
+          label: catTabLabel(<StopOutlined aria-hidden />, t('pages.settings.block'), isMobile),
           children: (
             <>
               <SettingListItem

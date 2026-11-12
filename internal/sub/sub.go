@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
+	"github.com/mhsanaei/3x-ui/v3/internal/util/crypto"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/locale"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/middleware"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/network"
@@ -60,9 +63,20 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 		return nil, err
 	}
 
+	// LUCX-HOOK: decoy site (lucx.342): unknown hosts get a configured plain-HTTP
+	// site instead of a 403, a visit by bare IP gets an empty page.
+	site := subSiteProxy(s.settingService)
 	if subDomain != "" {
-		engine.Use(middleware.DomainValidatorMiddleware(subDomain))
+		if site != nil {
+			engine.Use(subDomainOrSite(subDomain, site))
+		} else {
+			engine.Use(middleware.DomainValidatorMiddleware(subDomain))
+		}
 	}
+	if site != nil {
+		engine.NoRoute(func(c *gin.Context) { site.ServeHTTP(c.Writer, c.Request) })
+	}
+	// END LUCX-HOOK
 
 	LinksPath, err := s.settingService.GetSubPath()
 	if err != nil {
@@ -184,6 +198,13 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 		SubJsonObservatory = ""
 	}
 
+	// LUCX-HOOK: client-side WARP option (lucx.342)
+	SubJsonClientWarp, err := s.settingService.GetSubJsonClientWarp()
+	if err != nil {
+		SubJsonClientWarp = ""
+	}
+	// END LUCX-HOOK
+
 	SubClashEnableRouting, err := s.settingService.GetSubClashEnableRouting()
 	if err != nil {
 		SubClashEnableRouting = false
@@ -192,6 +213,11 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	SubClashRules, err := s.settingService.GetSubClashRules()
 	if err != nil {
 		SubClashRules = ""
+	}
+
+	SubClashRemoteDNS, err := s.settingService.GetSubClashRemoteDNS()
+	if err != nil {
+		SubClashRemoteDNS = false
 	}
 
 	SubTitle, err := s.settingService.GetSubTitle()
@@ -382,8 +408,10 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 		WithSUBJsonDns(SubJsonDns),
 		WithSUBJsonFinalMask(SubJsonFinalMask),
 		WithSUBJsonObservatory(SubJsonObservatory),
+		WithSUBJsonClientWarp(SubJsonClientWarp),
 		WithSUBClashEnableRouting(SubClashEnableRouting),
 		WithSUBClashRules(SubClashRules),
+		WithSUBClashRemoteDNS(SubClashRemoteDNS),
 		WithSUBTitle(SubTitle),
 		WithSUBSupportURL(SubSupportUrl),
 		WithSUBProfileURL(SubProfileUrl),
@@ -453,6 +481,11 @@ func (s *Server) Start() (err error) {
 			c := &tls.Config{
 				Certificates: []tls.Certificate{cert},
 			}
+			// LUCX-HOOK: a visit by bare IP must not reveal the subscription domain.
+			if err := crypto.HideCertWithoutSNI(c); err != nil {
+				logger.Warning("sub: generic no-SNI certificate:", err)
+			}
+			// END LUCX-HOOK
 			listener = network.NewAutoHttpsListener(listener)
 			listener = tls.NewListener(listener, c)
 			logger.Info("Sub server running HTTPS on", listener.Addr())
@@ -484,6 +517,9 @@ func (s *Server) Start() (err error) {
 // Stop gracefully shuts down the subscription server and closes the listener.
 func (s *Server) Stop() error {
 	s.cancel()
+	if s.sub != nil {
+		s.sub.Close()
+	}
 
 	var err1 error
 	var err2 error
@@ -501,4 +537,44 @@ func (s *Server) Stop() error {
 // GetCtx returns the server's context for cancellation and deadline management.
 func (s *Server) GetCtx() context.Context {
 	return s.ctx
+}
+
+// LUCX-HOOK: subscription decoy upstream (lucx.342)
+// subSiteProxy returns a reverse proxy to the configured decoy site, or nil.
+func subSiteProxy(settings service.SettingService) *httputil.ReverseProxy {
+	upstream, err := settings.GetSubSiteUpstream()
+	upstream = strings.TrimSpace(upstream)
+	if err != nil || upstream == "" {
+		return nil
+	}
+	if _, _, err := net.SplitHostPort(upstream); err != nil {
+		logger.Warning("sub: subSiteUpstream must be host:port:", upstream)
+		return nil
+	}
+	return httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: upstream})
+}
+
+// LUCX-HOOK: subscription decoy + bare-IP answer (lucx.342)
+// subDomainOrSite serves the decoy site for any host other than the
+// subscription domain, where the stock validator answers a bare 403. A visit
+// by bare IP gets an empty page instead: the site would tie the IP to the
+// domains it belongs to (the SNI gateway's unknown-name fallback does the same).
+func subDomainOrSite(domain string, site *httputil.ReverseProxy) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		host := c.Request.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		if net.ParseIP(strings.Trim(host, "[]")) != nil {
+			c.Status(http.StatusOK)
+			c.Abort()
+			return
+		}
+		if host != domain {
+			site.ServeHTTP(c.Writer, c.Request)
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
 }

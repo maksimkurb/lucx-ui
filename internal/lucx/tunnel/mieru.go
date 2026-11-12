@@ -36,11 +36,16 @@ type MieruConfig struct {
 
 	// RouteThroughXray dials egress through the panel-injected loopback SOCKS
 	// bridge (mita native egress.proxies SOCKS5). Default false — direct
-	// egress is the camouflage baseline; SOCKS also loses UDP associate.
+	// egress is the camouflage baseline; the routed bridge accepts UDP
+	// ASSOCIATE too (mita 3.39+ hands it to the selected outbound).
 	RouteThroughXray bool   `json:"routeThroughXray"`
 	OutboundTag      string `json:"outboundTag"`
 	// RouteXrayPort is the backend-owned loopback SOCKS port (0 when not routed).
 	RouteXrayPort int `json:"routeXrayPort"`
+
+	// ListenIP is the inbound's Listen IP, rendered as mita listenIPAddress
+	// (mieru >= 3.37). Empty = every interface. Not stored in settings.
+	ListenIP string `json:"-"`
 
 	// Traffic shaping (enfein/mieru trafficPattern). TrafficPattern is
 	// rendered both into the mita server JSON and into the mierus:// share
@@ -171,12 +176,13 @@ func MieruPrimaryPort(c MieruConfig) int {
 
 // mitaServerConfig mirrors the mita JSON config fields the panel renders.
 type mitaServerConfig struct {
-	PortBindings   []mitaPortBinding    `json:"portBindings"`
-	Users          []mitaUser           `json:"users"`
-	MTU            int                  `json:"mtu,omitempty"`
-	LoggingLevel   string               `json:"loggingLevel,omitempty"`
-	Egress         *mitaEgress          `json:"egress,omitempty"`
-	TrafficPattern *MieruTrafficPattern `json:"trafficPattern,omitempty"`
+	PortBindings    []mitaPortBinding    `json:"portBindings"`
+	ListenIPAddress string               `json:"listenIPAddress,omitempty"`
+	Users           []mitaUser           `json:"users"`
+	MTU             int                  `json:"mtu,omitempty"`
+	LoggingLevel    string               `json:"loggingLevel,omitempty"`
+	Egress          *mitaEgress          `json:"egress,omitempty"`
+	TrafficPattern  *MieruTrafficPattern `json:"trafficPattern,omitempty"`
 }
 
 type mitaPortBinding struct {
@@ -216,9 +222,10 @@ const mieruEgressProxyName = "lucx-xray"
 // panel's loopback bridge.
 func (c MieruConfig) RenderJSON(users []AuthPair) string {
 	cfg := mitaServerConfig{
-		MTU:            c.MTU,
-		LoggingLevel:   strings.ToUpper(strings.TrimSpace(c.LoggingLevel)),
-		TrafficPattern: c.TrafficPattern.Normalized(),
+		ListenIPAddress: strings.TrimSpace(c.ListenIP),
+		MTU:             c.MTU,
+		LoggingLevel:    strings.ToUpper(strings.TrimSpace(c.LoggingLevel)),
+		TrafficPattern:  c.TrafficPattern.Normalized(),
 	}
 	for _, b := range c.PortBindings {
 		cfg.PortBindings = append(cfg.PortBindings, mitaPortBinding{

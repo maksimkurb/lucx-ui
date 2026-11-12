@@ -6,14 +6,18 @@ LucX-UI is a fork of [3x-ui](https://github.com/MHSanaei/3x-ui) and uses **two l
 
 All original 3x-ui code remains under the **GNU General Public License v3.0** (see [LICENSE](../LICENSE)), as required by the upstream project. This includes every file not listed below, and every upstream file that carries inline `LUCX-HOOK` integration blocks (the surrounding file stays GPL; the hook blocks themselves are small integration glue).
 
+GPL-3.0 also applies, by derivation, to LucX-owned files adapted from GPL sources — notably `bin/lucx-keenetic.sh`, adapted from [own-open-source/x-ui-keenetic](https://gitlab.com/own-open-source/x-ui-keenetic).
+
 ## 2. LucX-specific components — PolyForm Noncommercial 1.0.0
 
 The components **authored by the LucX-UI project** are licensed under the **PolyForm Noncommercial License 1.0.0** (see [LICENSE-PolyForm-Noncommercial.txt](../LICENSE-PolyForm-Noncommercial.txt)):
 
 - `internal/awg/` — the entire AWG sidecar (manager, process, instance, traffic, diagnostics, NAT/orphan helpers, `cps/`, `signature/`)
-- `internal/lucx/` — Smart Cluster packages (`parser/`, `nodetype/`, `outbound_link/`) and the tunnel sidecar package (`tunnel/`)
+- `internal/lucx/` — Smart Cluster packages (`parser/`, `nodetype/`, `outbound_link/`) and the tunnel sidecar package (`tunnel/`) and standard kernel WireGuard (`wireguard/`)
 - `internal/database/migrate_awg.go` and its test
 - `internal/database/migrate_geodata.go` and its test
+- `internal/web/controller/kernel_wireguard.go`, `internal/web/job/kernel_wireguard_job.go`, `internal/web/service/kernel_wireguard.go` and their tests — kernel WireGuard integration
+- `frontend/src/test/kernel-wireguard*.ts*` — kernel WireGuard regressions
 - `internal/web/controller/awg.go` — AWG API endpoints
 - `internal/web/controller/tunnel.go` — tunnel sidecar API endpoints
 - `internal/web/job/awg_job.go` — AWG reconcile cron
@@ -22,6 +26,7 @@ The components **authored by the LucX-UI project** are licensed under the **Poly
 - `internal/web/service/awg_import.go` — import existing host AWG
 - `frontend/src/api/awg-import.ts`, `frontend/src/schemas/awg-import.ts`, `frontend/src/pages/inbounds/AwgImportBanner.tsx`
 - `internal/web/service/tunnel.go` — tunnel sidecar service
+- `internal/web/service/backup_site_files.go` and its test — masking-site files in the panel backup
 - `frontend/src/schemas/protocols/inbound/awg.ts` — AWG Zod schema
 - `frontend/src/schemas/tunnel.ts` — tunnel sidecar Zod schemas
 - `frontend/src/api/tunnels.ts` — tunnel sidecar API client
@@ -59,9 +64,12 @@ The panel **supervises external processes** and ships optional geo datasets. Not
 | [klzgrad/naiveproxy](https://github.com/klzgrad/naiveproxy) | Protocol / client reference | **BSD-3-Clause** |
 | `bin/olcrtc-linux-*` — [openlibrecommunity/olcrtc](https://github.com/openlibrecommunity/olcrtc) | olcRTC WebRTC tunnel core | **WTFPL** |
 | `bin/qwdtt-linux-*` — [SpaceNeuroX/proxy-turn-vk-android](https://github.com/SpaceNeuroX/proxy-turn-vk-android) server | qWDTT (WG over VK TURN) | **GPL-3.0** |
-| `bin/csqtt-linux-*` — [amurcanov/csqtt](https://github.com/amurcanov/csqtt) rust-server (GitHub tarball; pin `ace21228`) | CSQTT (TURN/RTP) | **PolyForm Noncommercial 1.0.0** (amurcanov; LucX commercial grant does not cover it) |
+| `bin/csqtt-linux-*` — [amurcanov/csqtt](https://github.com/amurcanov/csqtt) rust-server (GitHub tarball; pin `fd936ef0`, v2.5.0) | CSQTT (TURN/RTP) | **PolyForm Noncommercial 1.0.0** (amurcanov; LucX commercial grant does not cover it) |
 | `bin/mieru-linux-*` — [enfein/mieru](https://github.com/enfein/mieru) `mita` | mieru server | **GPL-3.0** |
+| `bin/masterdns-linux-*` — [masterking32/MasterDnsVPN](https://github.com/masterking32/MasterDnsVPN) server (pin `5f83ee9`) | MasterDNSVPN DNS-tunnel core | Upstream MIT-family (see repo) |
+| `bin/aivpn-linux-*` — [infosave2007/aivpn](https://github.com/infosave2007/aivpn) `aivpn-server` (pin `v1.2.0` / `80deb78`) | AIVPN anti-DPI UDP VPN gateway | **MIT** |
 | `bin/trusttunnel-linux-*` — [TrustTunnel/TrustTunnel](https://github.com/TrustTunnel/TrustTunnel) `trusttunnel_endpoint` | TrustTunnel endpoint | **Apache-2.0** |
+| `bin/wgobfs-linux-*` — [Ground-Zerro/Phobos](https://github.com/Ground-Zerro/Phobos) `src/phobos-obfuscator` (pin `22aedefd`; derived from [ClusterM/wg-obfuscator](https://github.com/ClusterM/wg-obfuscator)) | WireGuard obfuscation presets + SOCKS5-exit (wgobfs) | **GPL-3.0** |
 | [amnezia-vpn](https://github.com/amnezia-vpn) kernel module & tools | AmneziaWG / AWG3 (installed by host scripts, not the panel binary) | **GPL-2.0** (kernel module) |
 | `bin/geoip.dat` / `geosite.dat` — [Loyalsoldier/v2ray-rules-dat](https://github.com/Loyalsoldier/v2ray-rules-dat) | Stock geodata | Upstream (see repo) |
 | `bin/geoip_IR.dat` / `geosite_IR.dat` — [chocolate4u/Iran-v2ray-rules](https://github.com/chocolate4u/Iran-v2ray-rules) | IR geodata | Upstream (see repo) |
@@ -72,7 +80,9 @@ The panel **supervises external processes** and ships optional geo datasets. Not
 **Notes**
 
 - Tunnel binaries are **child processes**. LucX code under `internal/lucx/tunnel/` (PolyForm) only writes configs, spawns/kills, and probes health.
+- AIVPN is **MIT as an external program** — its binaries and mask profiles may be used/redistributed freely under that MIT term; the panel never carries AIVPN crypto code or mask data in-tree.
 - qWDTT is GPL-3.0 **as an external program**. Shipping the binary does not relicense LucX PolyForm sources; operators who redistribute qWDTT must still honour GPL-3.0 for that binary and its sources.
+- wgobfs is GPL-3.0 **as an external program** (the qWDTT/MTProxy precedent). Only the binary and the documented config/link formats are used; the Phobos TypeScript panel (AGPL-3.0) is neither copied nor linked — LucX re-implements the preset rendering and the `phobos://` format from the public docs.
 - CSQTT is amurcanov PolyForm NC **as an external program**. Redistribute with **their** LICENSE/Required Notice. LucX commercial permission does not sublicense CSQTT.
 - Geo `.dat` files are data packs refreshed from upstream releases; their license/terms follow the linked repositories.
 - Design references (not shipped as code): [elector1337/3x-ui-naive](https://github.com/elector1337/3x-ui-naive), [Bebrik2283555/Ex3-ui](https://github.com/Bebrik2283555/Ex3-ui), geodata browser port of [MHSanaei/3x-ui#6165](https://github.com/MHSanaei/3x-ui/pull/6165) (STRENCH0).

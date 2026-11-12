@@ -285,6 +285,13 @@ export const sections: readonly Section[] = [
       },
       {
         method: 'GET',
+        path: '/panel/api/inbounds/amneziawgKernelReadiness',
+        responseSchema: 'Readiness',
+        summary:
+          'Whether this host can run an AmneziaWG inbound on the kernel module. Returns ready, host blocker codes (root/tools/module/nft), and the command that fixes them. Saving an inbound also checks its features and rejects IPv6, port forwarding, routeThroughXray, or a pinned listen address that the kernel backend cannot honor.',
+      },
+      {
+        method: 'GET',
         path: '/panel/api/inbounds/allLinks',
         responseObjectSchema: { type: 'array', nullable: true, items: { type: 'string' } },
         summary:
@@ -306,6 +313,75 @@ export const sections: readonly Section[] = [
         path: '/panel/api/inbounds/get/:id',
         summary: 'Fetch a single inbound by numeric ID.',
         params: [{ name: 'id', in: 'path', type: 'number', desc: 'Inbound ID.' }],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/inbounds/:id/appleRelayDDM',
+        summary:
+          'Download an Apple Network Relay declarative-management JSON document for a MASQUE inbound. This is DDM JSON only, not a standalone .mobileconfig; submit it through a compatible MDM/DDM service and verify Apple device behavior.',
+        params: [{ name: 'id', in: 'path', type: 'number', desc: 'MASQUE inbound ID.' }],
+        body: '{\n  "name": "LucX MASQUE Relay",\n  "http2RelayUrl": "https://relay.example.com:8443/.well-known/masque/ip/*/*/",\n  "http3RelayUrl": "https://relay.example.com:8443/.well-known/masque/ip/*/*/",\n  "matchDomains": ["example.com"],\n  "excludedDomains": [],\n  "matchFQDNs": [],\n  "excludedFQDNs": [],\n  "publicKeyAssets": [],\n  "allowDNSFailover": false,\n  "uiEnabled": false\n}',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/plugins/list',
+        summary: 'List installed sidecar plugins and their process status.',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/plugins/install',
+        summary: 'Install a sidecar plugin ZIP containing a validated apiVersion 1 manifest.',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/plugins/install/url/preview',
+        summary:
+          'Validate the manifest of a public GitHub repository link (optionally /tree/<ref> for a pinned ref) without installing anything. Returns the parsed apiVersion 1 manifest so the panel can show what the operator is about to approve.',
+        body: '{\n  "url": "https://github.com/owner/repo"\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/plugins/install/url',
+        summary:
+          'Download the linked public GitHub repository and install it through the same apiVersion 1 contract as the ZIP install (dir overwrite, data/ preserved, plugin not activated). The manifest must match the one the preview returned.',
+        body: '{\n  "url": "https://github.com/owner/repo/tree/v1.2.0"\n}',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/plugins/:id/status',
+        summary:
+          'Status of one installed plugin: manifest, binary/data/log paths, running flag and PID.',
+        params: [{ name: 'id', in: 'path', type: 'string', desc: 'Plugin ID.' }],
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/plugins/:id/logs',
+        summary: 'Recent plugin log lines. LucX-UI only.',
+        params: [{ name: 'id', in: 'path', type: 'string', desc: 'Plugin ID.' }],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/plugins/:id/start',
+        summary: 'Start the plugin sidecar process. LucX-UI only.',
+        params: [{ name: 'id', in: 'path', type: 'string', desc: 'Plugin ID.' }],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/plugins/:id/stop',
+        summary: 'Stop the running plugin sidecar process. LucX-UI only.',
+        params: [{ name: 'id', in: 'path', type: 'string', desc: 'Plugin ID.' }],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/plugins/:id/restart',
+        summary: 'Restart the plugin sidecar process. LucX-UI only.',
+        params: [{ name: 'id', in: 'path', type: 'string', desc: 'Plugin ID.' }],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/plugins/:id/delete',
+        summary: 'Remove the installed plugin and its data directory. LucX-UI only.',
+        params: [{ name: 'id', in: 'path', type: 'string', desc: 'Plugin ID.' }],
       },
       {
         method: 'POST',
@@ -378,6 +454,26 @@ export const sections: readonly Section[] = [
       // LUCX-HOOK: AWG obfuscation generator + host capture endpoint documentation.
       {
         method: 'POST',
+        path: '/panel/api/inbounds/wireguard/importPreview',
+        summary:
+          'Preview a standard WireGuard server configuration as a disabled kernel inbound. Does not execute hooks or change interfaces.',
+        params: [
+          {
+            name: 'config',
+            in: 'body',
+            type: 'string',
+            desc: 'wg-quick server configuration; shell hooks are rejected.',
+          },
+          {
+            name: 'tproxyPort',
+            in: 'body',
+            type: 'integer',
+            desc: 'Dedicated loopback TCP/UDP transparent listener port.',
+          },
+        ],
+      },
+      {
+        method: 'POST',
         path: '/panel/api/inbounds/awg/generateObfuscation',
         summary:
           'Generate AmneziaWG obfuscation parameters (Jc/Jmin/Jmax/S1-S4/H1-H4) and optionally CPS packets (I1-I5) for a given profile, region, and mimicry type. For awgVersion "3"/"3.1" on an AWG3-capable host also returns HeaderProtectionKey and the six AWG 3.0 device timer/padding ranges. RandomTrailers is never auto-enabled. LucX-UI only.',
@@ -387,14 +483,21 @@ export const sections: readonly Section[] = [
             in: 'body',
             type: 'string',
             optional: true,
-            desc: 'Obfuscation preset: "lite", "standard", "pro", or "premium". Defaults to "standard".',
+            desc: 'Obfuscation preset: "lite", "standard", "pro", "premium", or "minecraft" (Minecraft Bedrock/RakNet; renders its own I1-I5 and ignores mimicryProfile). Defaults to "standard".',
           },
           {
             name: 'mimicryProfile',
             in: 'body',
             type: 'string',
             optional: true,
-            desc: 'CPS mimicry type: "tls", "dns", "sip", or "quic". Defaults to "tls".',
+            desc: 'CPS mimicry type: "tls", "dns", "sip", or "quic". Defaults to "tls". Ignored for "minecraft".',
+          },
+          {
+            name: 'serverPort',
+            in: 'body',
+            type: 'number',
+            optional: true,
+            desc: 'The inbound\'s UDP port, embedded by the "minecraft" preset in I3 as the Bedrock endpoint port. Defaults to 19132.',
           },
           {
             name: 'browserProfile',
@@ -1208,6 +1311,138 @@ export const sections: readonly Section[] = [
       },
       {
         method: 'GET',
+        path: '/panel/api/tunnel/masterdns/status',
+        summary:
+          'MasterDnsVPN core status for the Cores page: binary presence and process state. Inbound-only. LucX-UI only.',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/tunnel/masterdns/logs',
+        summary:
+          'Recent log lines of the MasterDnsVPN process (ring buffer, default 200). LucX-UI only.',
+        params: [
+          {
+            name: 'lines',
+            in: 'query',
+            type: 'number',
+            desc: 'Max lines to return (default 200).',
+            optional: true,
+          },
+        ],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/masterdns/upload',
+        summary:
+          'Replace the masterdns binary on disk (multipart field "file"). Body-limit exempt. LucX-UI only.',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/masterdns/download',
+        summary:
+          'Fetch the masterdns binary from a URL into place. https only, to a public host; redirects are bounded and re-checked. 200 MB cap. Optional sha256. LucX-UI only.',
+        body: '{\n  "url": "https://example.com/MasterDnsVPN_Server_Linux_AMD64",\n  "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/masterdns/deleteBinary',
+        summary: 'Stop the MasterDnsVPN core and remove its binary from disk. LucX-UI only.',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/tunnel/aivpn/status',
+        summary:
+          'AIVPN core status for the Cores page: binary presence and process state. Inbound-only. LucX-UI only.',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/tunnel/aivpn/logs',
+        summary: 'Recent log lines of the AIVPN process (ring buffer, default 200). LucX-UI only.',
+        params: [
+          {
+            name: 'lines',
+            in: 'query',
+            type: 'number',
+            desc: 'Max lines to return (default 200).',
+            optional: true,
+          },
+        ],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/aivpn/upload',
+        summary:
+          'Replace the aivpn binary on disk (multipart field "file"). Body-limit exempt. LucX-UI only.',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/aivpn/download',
+        summary:
+          'Fetch the aivpn-server binary from a URL into place. https only, to a public host. 200 MB cap. Optional sha256. LucX-UI only.',
+        body: '{\n  "url": "https://example.com/aivpn-linux-amd64",\n  "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/aivpn/deleteBinary',
+        summary: 'Stop the AIVPN core and remove its binary from disk. LucX-UI only.',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/tunnel/aivpn/clients',
+        summary:
+          'List AIVPN clients of the one local enabled inbound (relays the core management API). LucX-UI only.',
+        params: [
+          {
+            name: 'inboundId',
+            in: 'query',
+            type: 'number',
+            desc: 'Inbound id anchor (0 = any single local aivpn inbound).',
+            optional: true,
+          },
+        ],
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/tunnel/aivpn/clientKey',
+        summary:
+          'Re-print the aivpn:// connection key of one AIVPN client (core re-derives it; nothing is stored panel-side). LucX-UI only.',
+        params: [
+          {
+            name: 'inboundId',
+            in: 'query',
+            type: 'number',
+            desc: 'Inbound id anchor (0 = any single local aivpn inbound).',
+            optional: true,
+          },
+          {
+            name: 'clientId',
+            in: 'query',
+            type: 'string',
+            desc: 'AIVPN client id.',
+          },
+        ],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/aivpn/clients/add',
+        summary:
+          'Create an AIVPN client server-side; the connection key is minted by the core. LucX-UI only.',
+        body: '{\n  "inboundId": 12,\n  "name": "Alice Phone"\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/aivpn/clients/enable',
+        summary: 'Enable or disable one AIVPN client (core API). LucX-UI only.',
+        body: '{\n  "inboundId": 12,\n  "clientId": "7",\n  "enabled": false\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/aivpn/clients/delete',
+        summary: 'Remove one AIVPN client (core API). LucX-UI only.',
+        body: '{\n  "inboundId": 12,\n  "clientId": "7"\n}',
+      },
+      {
+        method: 'GET',
         path: '/panel/api/tunnel/openflux/status',
         summary: 'OpenFlux core status for the Cores page. Inbound-only. LucX-UI only.',
       },
@@ -1350,6 +1585,73 @@ export const sections: readonly Section[] = [
       },
       {
         method: 'GET',
+        path: '/panel/api/tunnel/wgo/status',
+        summary:
+          'wgobfs core status for the Cores page: one binary serves the kernel-WG obfuscation proxies (wgo-{id}) and the SOCKS5-exit inbounds (wgosocks-{id}). LucX-UI only.',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/tunnel/wgo/logs',
+        summary: 'Recent log lines of wgobfs processes (ring buffer, default 200). LucX-UI only.',
+        params: [
+          {
+            name: 'lines',
+            in: 'query',
+            type: 'number',
+            desc: 'Max lines to return (default 200).',
+            optional: true,
+          },
+        ],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/wgo/upload',
+        summary:
+          'Replace the wgobfs binary on disk (multipart field "file"). Body-limit exempt. LucX-UI only.',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/wgo/download',
+        summary:
+          'Fetch the wgobfs binary from a URL into place (same guards as anytls: https only, bounded redirects, 200 MB cap, optional sha256 check). LucX-UI only.',
+        body: '{\n  "url": "https://example.com/wgobfs-linux-amd64",\n  "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/wgo/deleteBinary',
+        summary: 'Stop every wgobfs process and remove the binary from disk. LucX-UI only.',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/inbounds/:id/wgoStatus',
+        summary:
+          'Per-inbound wgobfs engine status: the wgo proxy of a kernel WireGuard inbound (UDP presets) or a wgosocks SOCKS5-exit inbound (TCP probe on the listen port). Read-only. LucX-UI only.',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/inbounds/:id/wgoLogs',
+        summary:
+          'Ring-log tail of the wgobfs engine of one inbound (default 200 lines). LucX-UI only.',
+        params: [
+          {
+            name: 'lines',
+            in: 'query',
+            type: 'number',
+            desc: 'Max lines to return (default 200).',
+            optional: true,
+          },
+        ],
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/hostCheck',
+        summary:
+          'Read-only check that a tproxy, cover, anytls, or trusttunnel inbound can run on this host (certificate, site directory, ports). The master calls it on a node instead of opening those paths locally. Returns status ok or refused; never file contents. LucX-UI only.',
+        body: '{\n  "protocol": "tproxy",\n  "port": 8443,\n  "listen": "",\n  "tag": "tg-1",\n  "settings": "{\\"hostname\\":\\"node.example.com\\",\\"siteSource\\":\\"upstream\\",\\"siteUpstream\\":\\"http://127.0.0.1:8080\\",\\"carrierMode\\":\\"https\\",\\"secret\\":\\"00112233445566778899aabbccddeeff\\"}"\n}',
+        response: '{\n  "success": true,\n  "obj": {\n    "status": "ok"\n  }\n}',
+      },
+      {
+        method: 'GET',
         path: '/panel/api/tunnel/tproxy/status',
         summary:
           'Telegram WEB proxy core status for the Cores page: tproxy-server binary and process state. LucX-UI only.',
@@ -1412,6 +1714,110 @@ export const sections: readonly Section[] = [
         method: 'POST',
         path: '/panel/api/tunnel/mtproxy/deleteBinary',
         summary: 'Stop MTProxy instances and remove the binary. LucX-UI only.',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/tunnel/telemt/status',
+        summary: 'Telemt sidecar binary status. LucX-UI only.',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/tunnel/telemt/logs',
+        summary: 'Recent Telemt sidecar log lines. LucX-UI only.',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/telemt/upload',
+        summary: 'Replace the Telemt sidecar binary. LucX-UI only.',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/telemt/download',
+        summary: 'Fetch the Telemt sidecar binary from a URL. LucX-UI only.',
+        body: '{\n  "url": "https://example.com/telemt-linux-amd64",\n  "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/telemt/deleteBinary',
+        summary: 'Remove the Telemt sidecar binary. LucX-UI only.',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/tunnel/mtproto-zig/status',
+        summary: 'MTProto Zig WEB sidecar binary status. LucX-UI only.',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/tunnel/mtproto-zig/logs',
+        summary: 'Recent MTProto Zig WEB sidecar log lines. LucX-UI only.',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/mtproto-zig/upload',
+        summary: 'Replace the MTProto Zig WEB sidecar binary. LucX-UI only.',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/mtproto-zig/download',
+        summary: 'Fetch the MTProto Zig WEB sidecar binary from a URL. LucX-UI only.',
+        body: '{\n  "url": "https://example.com/mtproto-zig-linux-amd64",\n  "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/tunnel/mtproto-zig/deleteBinary',
+        summary: 'Remove the MTProto Zig WEB sidecar binary. LucX-UI only.',
+      },
+    ],
+  },
+  // LUCX-HOOK: scanner guard (ipset banning of RKN scanner subnets) API docs.
+  {
+    id: 'scanguard',
+    title: 'Scanner Guard',
+    description:
+      'Blocks incoming connections from known RKN/government scanner subnets. CIDR lists are fetched from operator-configured HTTPS sources and installed as ipset hash:net sets (lucx-sg4 / lucx-sg6) with owner-marked iptables/ip6tables INPUT rules (comment lucx-scanguard, conntrack NEW only); on hosts without the ipset/iptables tooling the guard uses native nftables instead — one owned table (lucx_scanguard) with sets lucx-sg4/lucx-sg6 and a hooked input chain, replaced atomically per refresh. The reconcile job (every 30m) re-ensures rules after reboot/iptables flush and re-fetches lists at most once per 6h; a broken source aborts the refresh and keeps the previous blocklist. Whitelisted subnets are excluded before install. Linux only. All endpoints live under /panel/api/scanguard and require a logged-in session or Bearer token. LucX-UI only.',
+    endpoints: [
+      {
+        method: 'GET',
+        path: '/panel/api/scanguard/status',
+        summary:
+          'Stored config (enabled, sources, whitelist) merged with the live firewall probe: which backend is active, ipset availability, rule presence per family and the number of installed subnets, plus the last list update time and the last refresh error, if any. LucX-UI only.',
+        response:
+          '{\n  "success": true,\n  "obj": {\n    "enabled": true,\n    "sources": ["https://raw.githubusercontent.com/…/government_networks.list"],\n    "whitelist": ["203.0.113.0/24"],\n    "lastUpdated": "2026-11-07T12:00:00Z",\n    "lastError": "",\n    "firewall": { "backend": "iptables", "ipsetAvailable": true, "rulesV4": true, "rulesV6": true, "v4Entries": 5312, "v6Entries": 408, "skipped": 0 }\n  }\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/scanguard/config',
+        summary:
+          'Validate, persist and apply the scanner guard config. Enabling fetches every source, subtracts the whitelist and atomically swaps the ipset sets, then installs the INPUT rules; disabling sweeps the owner-marked rules and destroys the sets. Returns the fresh status. LucX-UI only.',
+        body: '{\n  "enabled": true,\n  "sources": [\n    "https://raw.githubusercontent.com/shadow-netlab/traffic-guard-lists/refs/heads/main/public/government_networks.list"\n  ],\n  "whitelist": ["203.0.113.0/24"]\n}',
+        errorResponse:
+          '{\n  "success": false,\n  "msg": "scanguard: save failed (ipset not found — install the ipset package first)"\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/scanguard/refresh',
+        summary:
+          'Re-fetch every source and reinstall the blocklists now (operator button). Fails with ErrDisabled when the guard is off; a source failure keeps the previous sets and is reported in status.lastError. LucX-UI only.',
+        errorResponse:
+          '{\n  "success": false,\n  "msg": "scanguard: refresh failed (scanner guard is disabled)"\n}',
+      },
+    ],
+  },
+  // LUCX-HOOK: clean-ip (on-demand Cloudflare edge scanner) API docs.
+  {
+    id: 'cleanip',
+    title: 'Clean IP',
+    description:
+      'Probes random addresses from the published Cloudflare IPv4 ranges for TCP reachability and latency so an operator can pick a healthy client-side edge address. Optional TLS handshake verification against a chosen SNI drops edges whose handshake fails. Read-only and synchronous: results are returned in the response and nothing is ever applied to configs automatically (Rule 0). Live under /panel/api/cleanip and require a logged-in session or Bearer token. LucX-UI only.',
+    endpoints: [
+      {
+        method: 'POST',
+        path: '/panel/api/cleanip/scan',
+        summary:
+          'Run one scan batch: sample random Cloudflare addresses (default 256), TCP-probe them concurrently (32 workers), optionally verify a TLS handshake against the SNI, then return at most Count (default 30) healthy edges — TLS-verified first, then by latency. All fields optional: port 443, timeoutMs 1500 per probe, count ≤ 100, sample ≤ 4096. LucX-UI only.',
+        body: '{\n  "port": 443,\n  "count": 30,\n  "sample": 256,\n  "timeoutMs": 1500,\n  "tlsCheck": true,\n  "sni": "www.cloudflare.com"\n}',
+        response:
+          '{\n  "success": true,\n  "obj": [\n    { "address": "104.16.3.77", "port": 443, "latencyMs": 38, "tlsOk": true },\n    { "address": "172.70.112.9", "port": 443, "latencyMs": 41, "tlsOk": true }\n  ]\n}',
       },
     ],
   },
@@ -1701,7 +2107,8 @@ export const sections: readonly Section[] = [
       {
         method: 'POST',
         path: '/panel/api/server/updatePanel',
-        summary: 'Self-update the panel to the latest version. The server restarts on success.',
+        summary:
+          'Self-update the panel to the latest version. The server restarts on success. Bearer-token callers need admin or node-admin scope.',
         params: [
           {
             name: 'dev',
@@ -2181,6 +2588,35 @@ export const sections: readonly Section[] = [
       },
       {
         method: 'GET',
+        path: '/panel/api/clients/get/subId/:subId',
+        summary: 'Fetch clients by subscription ID.',
+        description:
+          'Matches the exact subscription ID and orders results by client ID. Returns an array of the same payloads as GET /clients/get/:email, since multiple clients can share a subscription ID. Includes disabled, expired and unattached clients. An unknown ID returns HTTP 200 with success:false, obj:null and a record-not-found message, matching the email lookup. Requires an admin token or a panel login session.',
+        params: [
+          {
+            name: 'subId',
+            in: 'path',
+            type: 'string',
+            desc: 'Exact subscription ID (URL-encoded).',
+          },
+        ],
+        responseObjectSchema: {
+          type: 'array',
+          nullable: true,
+          items: {
+            type: 'object',
+            properties: {
+              client: { $ref: '#/components/schemas/ClientRecord' },
+              inboundIds: { type: 'array', items: { type: 'integer' } },
+              externalLinks: { type: 'array', items: { type: 'object' } },
+              usedTraffic: { type: 'integer', format: 'int64' },
+              tunnelAllowedIPs: { type: 'object', additionalProperties: { type: 'string' } },
+            },
+          },
+        },
+      },
+      {
+        method: 'GET',
         path: '/panel/api/clients/get/tgId/:tgId',
         summary:
           'Fetch clients by Telegram user ID. Returns an array since multiple clients can share the same Telegram ID.',
@@ -2202,7 +2638,7 @@ export const sections: readonly Section[] = [
             name: 'client',
             in: 'body (json)',
             type: 'object',
-            desc: 'Client fields: email, subId, id (uuid), password, auth, flow, totalGB, expiryTime, limitIp, limitHwid, tgId (numeric Telegram user ID, 0 = none), comment, enable. Protocol-specific: secret and adTag (mtproto), privateKey, publicKey, preSharedKey, allowedIPs and keepAlive (WireGuard).',
+            desc: 'Client fields: email, subId, id (uuid), password, auth, flow, totalGB, expiryTime, limitIp, limitHwid, neverLogIps (true = the panel never records or shows the client IP addresses, so limitIp does not apply), tgId (numeric Telegram user ID, 0 = none), comment, enable. Protocol-specific: secret and adTag (mtproto), privateKey, publicKey, preSharedKey, allowedIPs and keepAlive (WireGuard).',
           },
           {
             name: 'inboundIds',
@@ -2275,7 +2711,7 @@ export const sections: readonly Section[] = [
             desc: 'Current client email (unique identifier).',
           },
         ],
-        body: '{\n  "email": "alice@example.com",\n  "totalGB": 107374182400,\n  "expiryTime": 1767225600000,\n  "limitHwid": 2,\n  "tgId": 123456789,\n  "enable": true\n}',
+        body: '{\n  "email": "alice@example.com",\n  "totalGB": 107374182400,\n  "expiryTime": 1767225600000,\n  "limitHwid": 2,\n  "neverLogIps": false,\n  "tgId": 123456789,\n  "enable": true\n}',
         response: '{\n  "success": true,\n  "msg": "Client updated"\n}',
       },
       {
@@ -2583,9 +3019,11 @@ export const sections: readonly Section[] = [
         path: '/panel/api/clients/hwids/:email',
         summary:
           'List registered HWID devices for a client with a short fingerprint. Full hashes are not exposed.',
+        description:
+          "`lastIp` is the address of the device's last subscription fetch, labelled from local IP databases on the server (`GeoLite2-*.mmdb` placed in the database or bin folder, else the free DB-IP Lite files the panel downloads monthly into the database folder; no lookup service is called). `source` names the database used (`maxmind`, `dbip`). The Xray log **Mask Address** option applies: `quarter` and `half` mask the address and drop `city`; `full` leaves `lastIp` and the labels out. A client with `neverLogIps` has no `lastIp`.",
         params: [{ name: 'email', in: 'path', type: 'string', desc: 'Client email.' }],
         response:
-          '{\n  "success": true,\n  "obj": [\n    {\n      "id": 1,\n      "firstSeen": 1735000000000,\n      "lastSeen": 1735100000000,\n      "userAgent": "Happ/1.0",\n      "deviceOs": "android",\n      "osVersion": "15",\n      "deviceModel": "Pixel 9",\n      "fingerprint": "6ad17c93e821"\n    }\n  ]\n}',
+          '{\n  "success": true,\n  "obj": [\n    {\n      "id": 1,\n      "firstSeen": 1735000000000,\n      "lastSeen": 1735100000000,\n      "userAgent": "Happ/1.0",\n      "deviceOs": "android",\n      "osVersion": "15",\n      "deviceModel": "Pixel 9",\n      "fingerprint": "6ad17c93e821",\n      "lastIp": "203.0.113.24",\n      "asn": 64500,\n      "org": "Example Telecom",\n      "country": "DE",\n      "countryNames": { "en": "Germany" },\n      "city": "Berlin",\n      "source": "dbip"\n    }\n  ]\n}',
       },
       {
         method: 'DELETE',
@@ -2912,6 +3350,14 @@ export const sections: readonly Section[] = [
       },
       {
         method: 'GET',
+        path: '/panel/api/hosts/raw',
+        summary:
+          'List every host row with its numeric id, for id-based pickers such as the per-client host rule override.',
+        responseSchema: 'Host',
+        responseSchemaArray: true,
+      },
+      {
+        method: 'GET',
         path: '/panel/api/hosts/get/:groupId',
         summary: 'Fetch a single host group by Group ID.',
         params: [{ name: 'groupId', in: 'path', type: 'string', desc: 'Host Group ID.' }],
@@ -2964,7 +3410,8 @@ export const sections: readonly Section[] = [
       {
         method: 'POST',
         path: '/panel/api/hosts/reorder',
-        summary: 'Set host group sort order by the position of each groupId in the array.',
+        summary:
+          'Set host group sort order by the position of each groupId in the array. IDs must be unique and refer to existing groups; omitted groups follow in their previous order.',
         body: '{\n  "ids": ["abc-123", "def-456"]\n}',
       },
       {
@@ -3080,6 +3527,13 @@ export const sections: readonly Section[] = [
       },
       {
         method: 'POST',
+        path: '/panel/api/setting/tgBotCapabilities',
+        summary:
+          'Report what the configured bot can do. Inline mode is a BotFather switch, so the panel warns when it is off.',
+        responseSchema: 'TgBotCapabilities',
+      },
+      {
+        method: 'POST',
         path: '/panel/api/setting/testDiscord',
         summary: 'Test Discord bot connection by sending a test embed to the configured channel.',
         response: '{\n  "success": true,\n  "msg": "Test notification sent successfully"\n}',
@@ -3097,7 +3551,7 @@ export const sections: readonly Section[] = [
     id: 'api-tokens',
     title: 'API Tokens',
     description:
-      'Manage scoped Bearer tokens for programmatic auth. Tokens grant admin, monitor, or node-sync access, may expire, and are stored as SHA-256 hashes. The plaintext is returned only once at creation.',
+      'Manage scoped Bearer tokens for programmatic auth. admin grants the full panel API; monitor is read-only for status and metrics; node-sync manages node configuration without panel updates; node-admin adds panel self-update to node-sync. Tokens may expire and are stored as SHA-256 hashes. The plaintext is returned only once at creation.',
     endpoints: [
       {
         method: 'GET',
@@ -3105,7 +3559,7 @@ export const sections: readonly Section[] = [
         summary:
           'List every API token, enabled or not. The token value is never returned — only metadata.',
         response:
-          '{\n  "success": true,\n  "obj": [\n    {\n      "id": 1,\n      "name": "default",\n      "enabled": true,\n      "createdAt": 1736000000\n    }\n  ]\n}',
+          '{\n  "success": true,\n  "obj": [\n    {\n      "id": 1,\n      "name": "central-panel-a",\n      "enabled": true,\n      "createdAt": 1736000000,\n      "scope": "node-admin",\n      "expiresAt": 0\n    }\n  ]\n}',
       },
       {
         method: 'POST',
@@ -3123,7 +3577,8 @@ export const sections: readonly Section[] = [
             name: 'scope',
             in: 'body',
             type: 'string',
-            desc: 'admin (default), monitor, or node-sync.',
+            desc: 'admin (default), monitor, node-sync, or node-admin. node-admin inherits node-sync and may also start a panel update.',
+            enum: ['admin', 'monitor', 'node-sync', 'node-admin'],
             optional: true,
           },
           {
@@ -3134,7 +3589,7 @@ export const sections: readonly Section[] = [
             optional: true,
           },
         ],
-        body: '{\n  "name": "central-panel-a",\n  "scope": "node-sync",\n  "expiresAt": 1798761600000\n}',
+        body: '{\n  "name": "central-panel-a",\n  "scope": "node-admin",\n  "expiresAt": 1798761600000\n}',
         responseSchema: 'ApiTokenView',
         errorResponse:
           '{\n  "success": false,\n  "msg": "a token with that name already exists"\n}',

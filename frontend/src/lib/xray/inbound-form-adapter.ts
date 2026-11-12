@@ -29,6 +29,7 @@ import { canEnableSniffing } from '@/lib/xray/protocol-capabilities';
 import { tlsCertUsesFiles } from '@/schemas/protocols/security/tls';
 import { SockoptStreamSettingsSchema } from '@/schemas/protocols/stream/sockopt';
 import { XHttpStreamSettingsSchema, XHttpXmuxSchema } from '@/schemas/protocols/stream/xhttp';
+import { liftLegacyXDriveService } from '@/schemas/protocols/stream/xdrive';
 
 const XMUX_DEFAULTS = XHttpXmuxSchema.parse({});
 
@@ -61,6 +62,7 @@ export interface RawInboundRow {
   shareAddr?: string;
   subSortIndex?: number;
   excludeFromSub?: boolean;
+  balancerOnly?: boolean;
   disableFlow?: boolean;
   clientStats?: unknown;
 }
@@ -91,6 +93,7 @@ export interface WireInboundPayload {
   shareAddr: string;
   subSortIndex: number;
   excludeFromSub: boolean;
+  balancerOnly: boolean;
   disableFlow: boolean;
 }
 
@@ -184,6 +187,7 @@ export function rawInboundToFormValues(row: RawInboundRow): InboundFormValues {
     Object.keys(rawStream).length > 0 ? (rawStream as StreamSettings) : undefined;
   if (streamSettings) {
     healStreamNetworkKey(streamSettings as unknown as Record<string, unknown>);
+    liftLegacyXDriveService(streamSettings as unknown as Record<string, unknown>);
     synthesizeTlsCertUseFile(streamSettings as unknown as Record<string, unknown>);
     const streamRecord = streamSettings as unknown as Record<string, unknown>;
     const xh = streamRecord.xhttpSettings;
@@ -235,6 +239,7 @@ export function rawInboundToFormValues(row: RawInboundRow): InboundFormValues {
     shareAddr: row.shareAddr ?? '',
     subSortIndex: row.subSortIndex == null || row.subSortIndex === 0 ? 1 : row.subSortIndex,
     excludeFromSub: row.excludeFromSub ?? false,
+    balancerOnly: row.balancerOnly ?? false,
     disableFlow: row.disableFlow ?? false,
     protocol,
     settings,
@@ -407,6 +412,7 @@ export function formValuesToWirePayload(
     shareAddr: values.shareAddr,
     subSortIndex: values.subSortIndex,
     excludeFromSub: values.excludeFromSub,
+    balancerOnly: values.balancerOnly,
     disableFlow: values.disableFlow,
   };
   if (values.nodeId != null) payload.nodeId = values.nodeId;

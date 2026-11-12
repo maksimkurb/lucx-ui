@@ -1,4 +1,5 @@
 import { NumberFormatter } from '@/utils';
+import type { StatusInput as ParsedStatusInput } from '@/schemas/status';
 
 export const USAGE_WARN_PERCENT = 80;
 export const USAGE_CRIT_PERCENT = 90;
@@ -46,6 +47,9 @@ export interface NetTraffic {
 export interface PublicIP {
   ipv4: string | number;
   ipv6: string | number;
+  // LUCX-HOOK: other public IPs bound to the host interfaces (dashboard)
+  extra?: string[] | null;
+  // END LUCX-HOOK
 }
 
 export interface AppStats {
@@ -90,7 +94,7 @@ export interface AmneziaWGInfo {
   running: boolean;
 }
 
-interface StatusInput {
+interface StatusInput extends Pick<ParsedStatusInput, 'resourceScope' | 'unavailableMetrics'> {
   cpu?: number;
   cpuCores?: number;
   logicalPro?: number;
@@ -113,6 +117,13 @@ interface StatusInput {
 }
 
 export class Status {
+  resourceScope = '';
+  unavailableMetrics: string[] = [];
+
+  metricAvailable(metric: string): boolean {
+    return !this.unavailableMetrics.includes(metric);
+  }
+
   cpu: CurTotal = new CurTotal(0, 0);
   cpuCores = 0;
   logicalPro = 0;
@@ -148,6 +159,8 @@ export class Status {
   constructor(data?: StatusInput | null) {
     if (data == null) return;
 
+    this.resourceScope = data.resourceScope ?? '';
+    this.unavailableMetrics = data.unavailableMetrics ?? [];
     this.cpu = new CurTotal(data.cpu ?? 0, 100);
     this.cpuCores = data.cpuCores ?? 0;
     this.logicalPro = data.logicalPro ?? 0;

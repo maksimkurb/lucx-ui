@@ -77,6 +77,35 @@ func TestExtractTproxySiteZipReplaces(t *testing.T) {
 	}
 }
 
+func TestExtractTproxySiteZipPreservesSiteOnInvalidArchive(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "site")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "index.html"), []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("other.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("replacement")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := ExtractTproxySiteZip(dest, buf.Bytes()); err == nil {
+		t.Fatal("archive without index accepted")
+	}
+	data, err := os.ReadFile(filepath.Join(dest, "index.html"))
+	if err != nil || string(data) != "original" {
+		t.Fatalf("original site lost: %q %v", data, err)
+	}
+}
+
 func TestEnsureTproxyTokenKeyPersistent(t *testing.T) {
 	prev := tunnelDir
 	dir := t.TempDir()
@@ -211,7 +240,7 @@ func TestTproxyEnsureSecretStable(t *testing.T) {
 
 func TestRenderTproxyCaddyfile(t *testing.T) {
 	got := RenderTproxyCaddyfile("proxy.example.com", 443, "/c.pem", "/k.pem", 24002, false, nil)
-	for _, need := range []string{"admin off", "auto_https off", "proxy.example.com:443", "tls", "reverse_proxy 127.0.0.1:24002", "header_down -Via", "header_down Server \"nginx\"", "response_header_timeout 40s"} {
+	for _, need := range []string{"admin off", "auto_https off", "proxy.example.com:443", "tls", "reverse_proxy 127.0.0.1:24002", "header_down -Via", "header_down -Server", "response_header_timeout 40s"} {
 		if !strings.Contains(got, need) {
 			t.Fatalf("caddyfile missing %q:\n%s", need, got)
 		}
@@ -229,6 +258,46 @@ func TestRenderTproxyCaddyfile(t *testing.T) {
 	withPanel := RenderTproxyCaddyfile("proxy.example.com", 443, "/c.pem", "/k.pem", 24002, true, []CoverRoute{{Path: "/abc", Dest: "https://127.0.0.1:2053"}})
 	if !strings.Contains(withPanel, "handle /abc*") || !strings.Contains(withPanel, "reverse_proxy 127.0.0.1:24002") {
 		t.Fatalf("panel handle before mtproxy:\n%s", withPanel)
+	}
+}
+
+// Regression (lucx.318): the stock XUI_BIN_FOLDER fallback is the relative
+// "bin" (install.sh resolves it against the unit's WorkingDirectory), and the
+// rejectLocalPath gate in RequireIndexHTML then refused every LucX-managed
+// site dir — zip upload died with "zip needs index.html" and reconcile
+// disabled tproxy/cover. Managed dirs must resolve to absolute paths.
+func TestManagedSiteDirsAbsoluteWithRelativeBinFolder(t *testing.T) {
+	t.Setenv("XUI_BIN_FOLDER", "bin")
+	t.Chdir(t.TempDir())
+	if filepath.IsAbs(workDir()) {
+		t.Fatalf("precondition: workDir %q must be relative", workDir())
+	}
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.Write([]byte("<html>ok</html>"))
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	site := TproxySiteDir(85)
+	if !filepath.IsAbs(site) {
+		t.Fatalf("TproxySiteDir %q must be absolute when XUI_BIN_FOLDER is relative", site)
+	}
+	if err := ExtractTproxySiteZip(site, buf.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	if err := RequireIndexHTML(site); err != nil {
+		t.Fatal(err)
+	}
+
+	cover := CoverSiteDir(85)
+	if !filepath.IsAbs(cover) {
+		t.Fatalf("CoverSiteDir %q must be absolute when XUI_BIN_FOLDER is relative", cover)
 	}
 }
 
@@ -285,7 +354,10 @@ func TestMtproxyArgsAlwaysDropUser(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(mtproxyAssetsDir(), "proxy-multi.conf"), []byte("c"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	args := mtproxyArgs(24001, 24000, "000102030405060708090a0b0c0d0e0f")
+	args := mtproxyArgs(24001, 24000, filepath.Join(dir, "mtproxy-1-secret"))
+	if strings.Contains(strings.Join(args, " "), "000102030405060708090a0b0c0d0e0f") {
+		t.Fatal("secret must not appear in process arguments")
+	}
 	for i, a := range args {
 		if a == "-u" && i+1 < len(args) && strings.TrimSpace(args[i+1]) != "" {
 			return

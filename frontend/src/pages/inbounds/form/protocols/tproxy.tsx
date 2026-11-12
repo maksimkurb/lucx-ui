@@ -25,6 +25,7 @@ export default function TproxyFields() {
   const inboundId = useAwgInboundId();
   const siteSource = useWatch({ name: 'settings.siteSource' }) as string | undefined;
   const routeThroughXray = useWatch({ name: 'settings.routeThroughXray' }) as boolean | undefined;
+  const backend = useWatch({ name: 'settings.backend' }) as string | undefined;
   const { data: outboundTags } = useOutboundTags();
   const [busy, setBusy] = useState(false);
   const siteQuery = useQuery({
@@ -69,6 +70,14 @@ export default function TproxyFields() {
         style={{ marginBottom: 12 }}
         message={t('pages.inbounds.form.tproxyNote')}
       />
+      {(backend ?? 'legacy') === 'legacy' && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={t('pages.inbounds.form.tproxyDcTip')}
+        />
+      )}
       <FormField
         name={['settings', 'hostname']}
         label={t('pages.inbounds.form.tproxyHostname')}
@@ -76,6 +85,18 @@ export default function TproxyFields() {
         required
       >
         <Input placeholder="proxy.example.com" />
+      </FormField>
+      <FormField
+        name={['settings', 'backend']}
+        label={t('pages.inbounds.form.tproxyBackend')}
+        tooltip={t('pages.inbounds.form.tproxyBackendHint')}
+      >
+        <Radio.Group>
+          <Radio.Button value="legacy">{t('pages.inbounds.form.tproxyBackendLegacy')}</Radio.Button>
+          <Radio.Button value="mtproto-zig">
+            {t('pages.inbounds.form.tproxyBackendZig')}
+          </Radio.Button>
+        </Radio.Group>
       </FormField>
       <FormField
         name={['settings', 'behindCover']}
@@ -107,7 +128,7 @@ export default function TproxyFields() {
       {siteSource === 'zip' && (
         <FormItemLike>
           <Upload beforeUpload={uploadZip} maxCount={1} accept=".zip" disabled={busy}>
-            <Button icon={<UploadOutlined />} loading={busy}>
+            <Button icon={<UploadOutlined aria-hidden />} loading={busy}>
               {t('pages.inbounds.form.tproxySiteZip')}
             </Button>
           </Upload>

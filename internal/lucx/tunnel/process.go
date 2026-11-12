@@ -78,10 +78,14 @@ func (r *ring) all(max int) []string {
 // matching the mtproto/AWG sidecar convention) so startup failures are
 // visible in journald and the panel log viewer.
 type procLogWriter struct {
-	mu    sync.Mutex
+	mu sync.Mutex
+	// label is the manager key the writer echoes under.
 	label string
-	buf   strings.Builder
-	ring  *ring
+	// echoFilter gates the panel-log echo per line; the ring buffer and the
+	// Logs viewer always get everything. nil = echo every line.
+	echoFilter func(string) bool
+	buf        strings.Builder
+	ring       *ring
 }
 
 func (w *procLogWriter) Write(p []byte) (int, error) {
@@ -127,6 +131,9 @@ func (w *procLogWriter) emitLocked(line string) {
 		return
 	}
 	w.ring.push(trimmed)
+	if w.echoFilter != nil && !w.echoFilter(trimmed) {
+		return
+	}
 	logger.Infof("tunnel: %s | %s", w.label, trimmed)
 }
 
@@ -140,8 +147,20 @@ type Proc struct {
 	log   *procLogWriter
 	lines *ring
 
+	// runUid/runGid launch credentials. Zero (default) inherits the panel's
+	// own user; SetRunUid before Start for a uid-scoped sidecar (routed
+	// anytls shares the lucx-mtproxy bridge uid).
+	runUid, runGid int
+
 	exitErr         error
 	intentionalStop atomic.Bool
+}
+
+// SetRunUid fixes the credentials the next Start launches the child under.
+func (p *Proc) SetRunUid(uid, gid int) {
+	p.mu.Lock()
+	p.runUid, p.runGid = uid, gid
+	p.mu.Unlock()
 }
 
 // NewProc returns an idle supervised process for the given log label.
@@ -149,8 +168,23 @@ func NewProc(label string) *Proc {
 	lines := &ring{}
 	return &Proc{
 		label: label,
-		log:   &procLogWriter{label: label, ring: lines},
+		log:   &procLogWriter{label: label, ring: lines, echoFilter: procEchoFilter(label)},
 		lines: lines,
+	}
+}
+
+// procEchoFilter keeps chatty cores out of the panel log without hiding
+// diagnostics: the qwdtt core logs an INFO stats line every few seconds plus
+// one line per connection event, so the echo forwards only its tagged error
+// lines ([ERR], panic) — the full output stays in the ring (Logs viewer and
+// GET /panel/api/tunnel/qwdtt/logs). Fatal-at-startup lines leave no [ERR]
+// tag, but the process exit itself is always logged at Error level.
+func procEchoFilter(label string) func(string) bool {
+	if label != QwdttKey {
+		return nil
+	}
+	return func(line string) bool {
+		return strings.Contains(line, "[ERR]") || strings.Contains(line, "panic:")
 	}
 }
 
@@ -210,9 +244,10 @@ func (p *Proc) Start(bin string, args []string, env []string) error {
 	p.cmd = cmd
 	p.done = done
 	p.exitErr = nil
+	uid, gid := p.runUid, p.runGid
 	p.mu.Unlock()
 	p.intentionalStop.Store(false)
-	prepareCmd(cmd)
+	prepareCmd(cmd, uid, gid)
 	if err := cmd.Start(); err != nil {
 		close(done)
 		p.mu.Lock()

@@ -18,6 +18,8 @@ import {
   AnytlsStatusSchema,
   TproxyStatusSchema,
   CsqttStatusSchema,
+  MasterdnsStatusSchema,
+  AivpnStatusSchema,
   OpenfluxStatusSchema,
   type NaiveConfig,
   type NaiveStatus,
@@ -30,8 +32,11 @@ import {
   type AnytlsStatus,
   type TproxyStatus,
   type CsqttStatus,
+  type MasterdnsStatus,
+  type AivpnStatus,
   type OpenfluxStatus,
 } from '@/schemas/tunnel';
+import type { AivpnClient } from '@/schemas/protocols/inbound/aivpn';
 
 export type {
   NaiveConfig,
@@ -45,8 +50,13 @@ export type {
   AnytlsStatus,
   TproxyStatus,
   CsqttStatus,
+  MasterdnsStatus,
+  AivpnStatus,
   OpenfluxStatus,
 };
+
+// AIVPN client row mirrors the Go tunnel.AivpnClient payload.
+export type AivpnClientPayload = AivpnClient;
 
 // JSON_HEADERS is load-bearing on every POST (lucx.69 lesson).
 const JSON_HEADERS = { headers: { 'Content-Type': 'application/json' } };
@@ -55,12 +65,17 @@ const NAIVE = '/panel/api/tunnel/naive';
 const OLCRTC = '/panel/api/tunnel/olcrtc';
 const QWDTT = '/panel/api/tunnel/qwdtt';
 const CSQTT = '/panel/api/tunnel/csqtt';
+const MASTERDNS = '/panel/api/tunnel/masterdns';
+const AIVPN = '/panel/api/tunnel/aivpn';
 const OPENFLUX = '/panel/api/tunnel/openflux';
 const MIERU = '/panel/api/tunnel/mieru';
 const TRUSTTUNNEL = '/panel/api/tunnel/trusttunnel';
 const ANYTLS = '/panel/api/tunnel/anytls';
+const WGO = '/panel/api/tunnel/wgo'; // LUCX-HOOK: wgobfs
 const TPROXY = '/panel/api/tunnel/tproxy';
 const MTPROXY = '/panel/api/tunnel/mtproxy';
+const TELEMT = '/panel/api/tunnel/telemt';
+const MTPROTO_ZIG = '/panel/api/tunnel/mtproto-zig';
 
 export const tunnelsApi = {
   status: async (): Promise<Msg<NaiveStatus>> => {
@@ -169,6 +184,54 @@ export const tunnelsApi = {
   csqttDeleteBinary: (): Promise<Msg<null>> =>
     HttpUtil.post<null>(`${CSQTT}/deleteBinary`, {}, JSON_HEADERS),
 
+  masterdnsStatus: async (): Promise<Msg<MasterdnsStatus>> => {
+    const raw = await HttpUtil.get<MasterdnsStatus>(`${MASTERDNS}/status`, undefined, {
+      silent: true,
+    });
+    return parseMsg(raw, MasterdnsStatusSchema, 'tunnel/masterdnsStatus');
+  },
+  masterdnsLogs: (lines = 200): Promise<Msg<string[]>> =>
+    HttpUtil.get<string[]>(`${MASTERDNS}/logs?lines=${lines}`),
+  masterdnsDownload: (url: string, sha256?: string): Promise<Msg<null>> =>
+    HttpUtil.post<null>(`${MASTERDNS}/download`, { url, sha256 }, JSON_HEADERS),
+  masterdnsUpload: (file: File): Promise<Msg<null>> => {
+    const fd = new FormData();
+    fd.set('file', file);
+    return HttpUtil.post<null>(`${MASTERDNS}/upload`, fd);
+  },
+  masterdnsDeleteBinary: (): Promise<Msg<null>> =>
+    HttpUtil.post<null>(`${MASTERDNS}/deleteBinary`, {}, JSON_HEADERS),
+
+  aivpnStatus: async (): Promise<Msg<AivpnStatus>> => {
+    const raw = await HttpUtil.get<AivpnStatus>(`${AIVPN}/status`, undefined, { silent: true });
+    return parseMsg(raw, AivpnStatusSchema, 'tunnel/aivpnStatus');
+  },
+  aivpnLogs: (lines = 200): Promise<Msg<string[]>> =>
+    HttpUtil.get<string[]>(`${AIVPN}/logs?lines=${lines}`),
+  aivpnDownload: (url: string, sha256?: string): Promise<Msg<null>> =>
+    HttpUtil.post<null>(`${AIVPN}/download`, { url, sha256 }, JSON_HEADERS),
+  aivpnUpload: (file: File): Promise<Msg<null>> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return HttpUtil.post<null>(`${AIVPN}/upload`, fd);
+  },
+  aivpnDeleteBinary: (): Promise<Msg<null>> =>
+    HttpUtil.post<null>(`${AIVPN}/deleteBinary`, {}, JSON_HEADERS),
+  // AIVPN clients live in the core DB; the panel relays through its
+  // management API. List/enable/delete take the inbound id as the anchor.
+  aivpnClients: (inboundId: number): Promise<Msg<AivpnClient[]>> =>
+    HttpUtil.get<AivpnClient[]>(`${AIVPN}/clients?inboundId=${inboundId}`),
+  aivpnClientKey: (inboundId: number, clientId: string): Promise<Msg<string>> =>
+    HttpUtil.get<string>(
+      `${AIVPN}/clientKey?inboundId=${inboundId}&clientId=${encodeURIComponent(clientId)}`,
+    ),
+  aivpnAddClient: (inboundId: number, name: string): Promise<Msg<AivpnClient>> =>
+    HttpUtil.post<AivpnClient>(`${AIVPN}/clients/add`, { inboundId, name }, JSON_HEADERS),
+  aivpnEnableClient: (inboundId: number, clientId: string, enabled: boolean): Promise<Msg<null>> =>
+    HttpUtil.post<null>(`${AIVPN}/clients/enable`, { inboundId, clientId, enabled }, JSON_HEADERS),
+  aivpnDeleteClient: (inboundId: number, clientId: string): Promise<Msg<null>> =>
+    HttpUtil.post<null>(`${AIVPN}/clients/delete`, { inboundId, clientId }, JSON_HEADERS),
+
   openfluxStatus: async (): Promise<Msg<OpenfluxStatus>> => {
     const raw = await HttpUtil.get<OpenfluxStatus>(`${OPENFLUX}/status`, undefined, {
       silent: true,
@@ -237,6 +300,22 @@ export const tunnelsApi = {
   anytlsDeleteBinary: (): Promise<Msg<null>> =>
     HttpUtil.post<null>(`${ANYTLS}/deleteBinary`, {}, JSON_HEADERS),
 
+  wgoStatus: async (): Promise<Msg<AnytlsStatus>> => {
+    const raw = await HttpUtil.get<AnytlsStatus>(`${WGO}/status`, undefined, { silent: true });
+    return parseMsg(raw, AnytlsStatusSchema, 'tunnel/wgoStatus');
+  },
+  wgoLogs: (lines = 200): Promise<Msg<string[]>> =>
+    HttpUtil.get<string[]>(`${WGO}/logs?lines=${lines}`),
+  wgoDownload: (url: string, sha256?: string): Promise<Msg<null>> =>
+    HttpUtil.post<null>(`${WGO}/download`, { url, sha256 }, JSON_HEADERS),
+  wgoUpload: (file: File): Promise<Msg<null>> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return HttpUtil.post<null>(`${WGO}/upload`, fd);
+  },
+  wgoDeleteBinary: (): Promise<Msg<null>> =>
+    HttpUtil.post<null>(`${WGO}/deleteBinary`, {}, JSON_HEADERS),
+
   tproxyStatus: async (): Promise<Msg<TproxyStatus>> => {
     const raw = await HttpUtil.get<TproxyStatus>(`${TPROXY}/status`, undefined, { silent: true });
     return parseMsg(raw, TproxyStatusSchema, 'tunnel/tproxyStatus');
@@ -275,4 +354,36 @@ export const tunnelsApi = {
   },
   mtproxyDeleteBinary: (): Promise<Msg<null>> =>
     HttpUtil.post<null>(`${MTPROXY}/deleteBinary`, {}, JSON_HEADERS),
+  telemtStatus: async (): Promise<Msg<TproxyStatus>> => {
+    const raw = await HttpUtil.get<TproxyStatus>(`${TELEMT}/status`, undefined, { silent: true });
+    return parseMsg(raw, TproxyStatusSchema, 'tunnel/telemtStatus');
+  },
+  telemtLogs: (lines = 200): Promise<Msg<string[]>> =>
+    HttpUtil.get<string[]>(`${TELEMT}/logs?lines=${lines}`),
+  telemtDownload: (url: string, sha256?: string): Promise<Msg<null>> =>
+    HttpUtil.post<null>(`${TELEMT}/download`, { url, sha256 }, JSON_HEADERS),
+  telemtUpload: (file: File): Promise<Msg<null>> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return HttpUtil.post<null>(`${TELEMT}/upload`, fd);
+  },
+  telemtDeleteBinary: (): Promise<Msg<null>> =>
+    HttpUtil.post<null>(`${TELEMT}/deleteBinary`, {}, JSON_HEADERS),
+  mtprotoZigStatus: async (): Promise<Msg<TproxyStatus>> => {
+    const raw = await HttpUtil.get<TproxyStatus>(`${MTPROTO_ZIG}/status`, undefined, {
+      silent: true,
+    });
+    return parseMsg(raw, TproxyStatusSchema, 'tunnel/mtprotoZigStatus');
+  },
+  mtprotoZigLogs: (lines = 200): Promise<Msg<string[]>> =>
+    HttpUtil.get<string[]>(`${MTPROTO_ZIG}/logs?lines=${lines}`),
+  mtprotoZigDownload: (url: string, sha256?: string): Promise<Msg<null>> =>
+    HttpUtil.post<null>(`${MTPROTO_ZIG}/download`, { url, sha256 }, JSON_HEADERS),
+  mtprotoZigUpload: (file: File): Promise<Msg<null>> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return HttpUtil.post<null>(`${MTPROTO_ZIG}/upload`, fd);
+  },
+  mtprotoZigDeleteBinary: (): Promise<Msg<null>> =>
+    HttpUtil.post<null>(`${MTPROTO_ZIG}/deleteBinary`, {}, JSON_HEADERS),
 };

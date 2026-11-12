@@ -32,7 +32,1639 @@ Healing: update the panel. Incy picks up the AmneziaWG servers on the next subsc
 
 ---
 
-## lucx.296 - ACME HTTP-01 next to a LucX Caddy on :80 (2026-10-14)
+## Unreleased - ACME HTTP-01 next to a LucX Caddy on :80 (2026-10-14)
+## lucx.360 — fix: Go toolchain 1.27.4 — GO-2026-6859 (net/http MaxBytesReader header race)
+
+The `govulncheck` CI job went red on a fresh advisory, not on a code change:
+GO-2026-6859, an HTTP/1 server crash (MaxBytesReader header race) in the Go
+standard library, flagged on **every** `http` call site across the repo
+(net/http found in `go1.27.3`, fixed in `go1.27.4`). First failing run 43178026213
+(2026-11-12); the previous red (`42805268520`, codegen) was a different, already
+closed issue — govulncheck itself was green a day earlier.
+
+**Fix:** `go.mod` `go 1.27.3` → `go 1.27.4`. That is the single pin: every
+workflow installs Go via `go-version-file: go.mod` (ci, release, docker,
+mutation, kernel-wireguard, claude-pr-review), and `GOTOOLCHAIN=local` jobs use
+whatever that step installed — so the release and docker builds compile the
+fixed stdlib into shipped binaries automatically. `caddylucx/go.mod` keeps
+`go 1.26.0` (language directive only; its builds on the same runners still link
+the 1.27.4 stdlib). No code changes, no frontend changes.
+
+Effect on release v3.11.0-lucx.360: the shipped tarballs land with the patched
+net/http. The advisory is a server-crash (DoS) class, not RCE.
+
+## lucx.359 — fix: installer no longer installs openresolv (it killed DNS on Debian 12+)
+
+Report via tg (tester on a clean Debian 13/Trixie): `bin/install-awg-module.sh`
+ran `apt-get install -y -q openresolv`, and on Debian 12+ openresolv and
+systemd-resolved conflict over the `resolvconf` provider — apt removed
+systemd-resolved + libnss-resolve while `/etc/resolv.conf` kept pointing at
+`/run/systemd/resolve/resolv.conf`. Dangling symlink → no system DNS at all on
+the panel host.
+
+**Root-cause reasoning:** openresolv was added (lucx.~50s) because awg-quick
+up failed with `resolvconf: command not found` — but that only happens for
+conf files that carry `DNS=`. Since lucx.~60s our renderers deliberately never
+write `DNS=` to server or client confs (`internal/awg/client_conf.go`,
+`internal/awg/manager.go`; enforced by
+`TestRenderClientConfNeverWritesDNS` / `TestSettingsDNSNeverWritten`), so
+awg-quick never calls resolvconf for our configs at all. The package was dead
+weight — and actively destructive on resolved hosts.
+
+**Fix:** removed the `apt-get install openresolv` line from
+`bin/install-awg-module.sh` (dependency block 1), replaced with a why-not
+comment so nobody re-adds it casually. The `systemctl enable --now
+systemd-resolved` block (VladufQa's resolve1 case) stays — it is a no-op on
+clean Trixie and only activates an already-installed service. The verify
+echo at the bottom now reads `resolvconf backend (openresolv/systemd-resolved)`.
+No Go/frontend/DB changes; Rule 0/0b untouched. `bash -n` green.
+
+**Already-broken hosts** (openresolv applied before this fix): one-liner —
+`apt-get install -y systemd-resolved && systemctl enable --now systemd-resolved`;
+the resolv.conf symlink re-resolves once the service runs (no manual ln needed).
+
+## lucx.358 — fix: scanguard exempts the panel's own tunnel ports — csqtt/qwdtt died under the blocklist (2026-11-11)
+
+Report (Slava in the tg chat): after enabling the scanner guard on hosts where a
+source list carries the VK turn-relay networks (90.156.232.0/21 — e.g. the C24Be
+AS_Network_List blacklist), csqtt/qwdtt went dead. Root cause is structural: the
+guard's INPUT drop rules (`conntrack NEW + set match`) cut inbound traffic from
+ANY blocked subnet on ALL ports, and csqtt (TURN/RTP over the VK turn relays) and
+qwdtt (DTLS/WG entry) receive their traffic INBOUND from exactly those networks.
+The default source (shadow-netlab government_networks.list) does not contain
+90.156.* — hosts hit this only after adding such lists as sources — but the
+breakage is list-agnostic: any list intersecting the tunnel relay ranges does it.
+
+**Fix (port exemption, not whitelist):** `ScanguardService.keepPorts()` derives
+the listening ports of enabled non-node csqtt/qwdtt inbounds (csqtt public port
+via `CsqttListenPort`; qwdtt via `QwdttDTLSPort` + WGPort) and `Apply` now
+carries a keep list: both backends install owner-marked ACCEPT rules
+(`--comment lucx-scanguard-keep`, conntrack NEW, tcp+udp per port) ABOVE the
+DROPs — iptables path via `ensureFamilyRules` convergence (stale port swept,
+missing inserted at position 1, anything found below the DROP re-inserted), nft
+path via the same accepts inside the atomic table-replacement batch. Status
+gains `keepOk`; Reconcile re-applies when the installed keeps drift from the
+wanted port set (tunnel port changed, tunnel disabled, pre-358 upgrade), so the
+list self-heals without operator action. Disable sweeps keeps together with
+drops. No frontend change (hand-written schema ignores the additive field), no
+new routes, no i18n keys, no DB changes — Rule 0 clean.
+
+Tests: `TestApplyInsertsKeepPorts` (2 ports → 8 accepts, both transports, above
+drops, dup collapse), `TestKeepRulesConverge` (misplaced re-insert at 1, stale
+sweep — and the `iptables -S` quote quirk: comment values arrive quoted, so the
+dump parser matches on quote-stripped specs), `TestKeepDumpParsing`,
+`TestNftBuildBatchKeepPorts`, `TestNftProbe`/`TestProbeStatus` keepOk cases,
+`TestScanguardKeepPortsFromInbounds` (enabled feeds ports, disabled/node rows
+ignored). Green: `go build ./...`, vet + gofumpt, `go test ./internal/lucx/...`
+and `TestScanguard*` on Linux (WSL; the Linux-only firewall tests can't run on
+the dev box). Note: `go test ./internal/web/service/` as a WHOLE package
+interferes (random unrelated failures per run, e.g. share-only/autorenew tests,
+all passing with `-run`) — pre-existing, not touched by this change, and the
+service package is not part of the Rule 7 gate.
+
+lucxVersion: lucx.358
+
+## lucx.357 — fix: aivpn QR/keys — the core v1.2.0 strips keys from every payload, modal pulls the key on click (2026-11-10)
+
+Hastelo: after the masks fix (lucx.356) the aivpn server starts and clients add, but the
+`QR code` button in the inbound client table is dead (disabled) — no `aivpn://` key anywhere.
+Cause (upstream `mgmt_service/mod.rs` of the pinned 80deb78): `ClientView` — the shape the
+v1.2.0 management API returns for list/single/add — is **PSK-stripped**: `id, name, vpn_ip,
+enabled, stats…` and no `connection_key`. The minted key lives behind a dedicated endpoint
+`GET /api/v1/clients/:id/connection-key` → `{"connection_key": "aivpn://<b64>"}`, which nobody
+called; the panel's `ClientKey` (reprint) parsed only the client payload and failed with
+"connection key not present in client payload", and list rows never had a key, so the QR
+button gate `disabled={!row.key}` never opened.
+
+**Fix:** reprint goes through the endpoint first (`aivpnAPI.ClientKey` — endpoint, then the
+legacy payload scan as fallback); the panel relays it as
+`GET /panel/api/tunnel/aivpn/clientKey?inboundId=…&clientId=…`
+(`AivpnService.Key` — Rule 0: the core re-derives the key, the panel stores/mints nothing).
+The inbound form's QR button does not pre-gate on row.key anymore: click → fetch → modal
+(`QrPanel`, copy/download/name remark). No new i18n keys (backend msg is surfaced verbatim).
+
+Tests: `TestAivpnClientKeyEndpoint` (v1.2.0 endpoint / legacy fallback / stripped payload is
+an error) — `go test ./internal/lucx/... -count=1` green, vet + gofumpt clean. Frontend:
+typecheck + lint + `vitest run --project=unit` (1663/1663) + build green; `npm run gen`
+refreshed openapi.json (347 paths). Pattern 1be in `.agents/07-debug-tunnels.md`.
+
+**Release tail (same tag):** docs `openapi.json` copy synced (codegen gate, aa9c1b70);
+`DockerInit.sh` masks path was one level above the build context (docker tag build red →
+fixed + tag recreated, 778092f7); docs API reference regenerated via `docs npm run gen:api`
+(2240a1f8 — the second codegen gate, on the docs layout operations list). Tag
+`v3.11.0-lucx.357` = 778092f7; release notes filled RU+EN.
+
+lucxVersion: lucx.357
+
+## lucx.356 — fix: aivpn will not boot without masks; masks vendored and shipped in every tarball (2026-11-10)
+
+Live log: `tunnel: aivpn | ERROR aivpn_server::bootstrap: Failed to create server: Session
+error: No masks found in /var/lib/aivpn/masks` — exit 1 on every reconcile tick. Cause: the
+pinned aivpn-server v1.2.0 refuses to start without at least one MaskProfile JSON in its
+`mask_dir` (default `/var/lib/aivpn/masks`); the masks are the anti-DPI traffic-shaping
+profiles (QUIC, WebRTC calls, VK, WhatsApp…) — the server signs, rotates and hands them to
+clients itself, clients never need their own. Upstream `install-server.sh` copies
+`assets/masks/` or downloads `masks.tar.gz` from the release; LucX shipped only the binary.
+
+**Fix:** masks vendored at `third_party/sidecars/masks/*.json` (10 profiles from the pinned
+v1.2.0 release's `masks.tar.gz`, arch-independent); every panel tarball packs them at
+`bin/tunnel/aivpn-masks/` (`bin/pack-sidecars.sh`, `bin/sourcecraft-release.sh`,
+`DockerInit.sh`). The panel renders `mask_dir` → `bin/tunnel/aivpn-masks` in server.json;
+with an empty mask store `AivpnInstanceFromInbound` keeps the instance DOWN with a warning
+(no crash-loop) and re-enables on the next tick once the masks appear. Bumping the aivpn
+pin → overwrite `third_party/sidecars/masks/` with the new release's `masks.tar.gz`.
+Rule 0: masks are server assets — no change to issued client configs.
+
+Tests: TestAivpnRenderConfig (mask_dir), TestAivpnInstanceFromInbound
+(no-masks gate → disabled, with masks → enabled) — `go test ./internal/lucx/... -count=1`
+green, gofumpt/vet clean. Pattern 1bd in `.agents/07-debug-tunnels.md`, AIVPN bullet in
+`.agents/02-architecture.md`, `third_party/sidecars/README.md`.
+
+lucxVersion: lucx.356
+
+## lucx.355 — fix: client-attach loss on share-only save, gateway hosts swept, tgbot card buttons (2026-11-09)
+
+Three open GitHub issues, all with tester-traced root causes, all reproducing in code walk-through:
+
+- **#196** (`mitrillov`) — `POST /panel/api/inbounds/update/<id>` on a share-only sidecar inbound (CSQTT, olcRTC, qWDTT, MasterDNS, OpenFlux, TProxy) detached **every** client and the CSQTT member sync then wiped the members. Root cause: share-only inbounds keep membership in `client_inbounds` only and their stored settings have no `clients` array, so `UpdateInbound`'s `GetClients(stored)` returned an empty slice and the prune-sync (`ClientService.SyncInbound`, prune=true) dropped every `client_inbounds` row; `keepStoredClients` also correctly keeps the payload without `clients` (stored has none). The client endpoints already special-case these protocols via `shareOnlySidecar()` — the inbound save did not. Fix (LUCX-HOOK in `internal/web/service/inbound.go` UpdateInbound): skip the prune-sync when `shareOnlySidecar(oldProtocol) && len(newClients) == 0` — empty wanted set for a share-only protocol means "no membership data in this save", not "detach everybody"; a payload that DOES carry clients still syncs (protocol-switch semantics untouched). Regression test `TestUpdateShareOnlyInboundKeepsMembers` (4 subtests: qwdtt/csqtt/olcrtc/tproxy) — verified red without the guard, green with it. TProxy needs `"siteSource":"upstream","siteUpstream":"http://127.0.0.1:port"` in the fixture to pass TLS/site validation.
+- **#195** (`vumaximov`) — multi-node master auto-deleted gateway Hosts imported from remote nodes ~5 min after the Masking re-import. Root cause: `InboundService.sweepOrphanGatewayHosts` (`internal/web/service/gateway.go`) built `referenced` only from gateway snapshots in MASTER inbound settings, while hosts adopted from a node's Masking Apply live on node-mirrored inbounds (`node_id NOT NULL`) whose snapshot exists on the node only — the cron `TunnelService.Reconcile` sweep then classified them as orphans past the 5 min grace and hard-deleted them via raw GORM, bypassing `database.DeleteHosts()` (no tombstones). Fix (LUCX-HOOK in sweep + `orphanGatewayHostIDs`): never sweep hosts of node-mirrored inbounds; route remaining deletions through `database.DeleteHosts(db, "id IN ?", ids)` so tombstones are written. Tests: `orphanGatewayHostIDs` unit case + DB regression `TestSweepOrphanGatewayHosts_NodeAdopted` (node host survives, master's stale host swept, exactly one tombstone; verified red without the guard).
+- **#198** (`p1nQ`) — the TG-bot admin client card had no way to reach the client's subscription links or QR/.conf: the upstream screens refactor (#6760) rebuilt `clientRows` in `screen_legacy.go` without the links/QR rows while the callbacks (`client_sub_links`, `client_qr_links`) and both screens kept working. Fix (LUCX-HOOK in `clientRows`): a Links + `QR / .conf` row using existing buttons/keys (`tgbot.buttons.links`, `tgbot.buttons.qrCode` — no new i18n keys, so the dead-key i18n test is unaffected); non-admin taps stay inside the existing ownership check (`clientOwnedByTgUser`). The `admin_client_*_links` fallback branch (router:947) stays — untriggered but harmless.
+
+**Gates:** `go build ./internal/...`, `go vet ./internal/web/service/ ./internal/web/service/tgbot/`, targeted tests (`ShareOnly`, gateway sweep, `./internal/web/service/tgbot/`, `./internal/database/...`, `./internal/lucx/...`) green. NOTE: `go test ./internal/web/service/` full-package run flakes on an independent random subset per run (first run: autorenew/geo, clean tree: TUIC relays) — pre-existing cross-test interference, targeted runs are deterministic; documented in lucx.354 as pre-existing Windows flakes too. CI follow-up on d09ea09a: staticcheck QF1001 (De Morgan) on the #196 guard — condition rewritten as `!shareOnlySidecar(oldProtocol) || len(newClients) > 0` (same semantics, targeted ShareOnly tests re-run green).
+
+**lucxVersion:** lucx.355
+
+## lucx.354 — PRs: scanguard whitelist-as-array + 6 dep bumps, oxlint bump reverted (2026-11-09)
+
+Merged all 8 open forks PRs onto main (ad7173d4 base): **#194** (r-miheev, fix(scanguard) whitelist serialized as `[]` — nil-slices marshalled as JSON `null` and the frontend called `.join()`; default `DefaultConfig().Whitelist = []string{}` + nil-guard in `LoadConfig` + regression test `TestScanguardLoadConfigWhitelistIsAlwaysArray` on missing setting and stored `null`) plus dependabot bumps **#186** goccy/go-json 0.11.2→0.12.0, **#187** gin-contrib/sessions 1.1.2→1.1.3, **#188** react-i18next 17.1.9→17.1.12, **#189** gin-contrib/gzip 1.2.8→1.2.9, **#190** gopsutil/v4 4.26.9→4.26.10, **#192** validator/v10 10.30.5→10.30.6. **#191** (oxlint 1.89.0→1.91.0) merged then **reverted**: oxlint 1.91 promotes the React Compiler rules (`react/immutability`, `react/set-state-in-effect`) and the existing upstream frontend violates them in 10 places (`useInbounds.ts`, `Sparkline.tsx`, `XrayLogModal.tsx`, `NodeHistoryPanel.tsx`, `useOverviewHistory.ts`, `VersionModal.tsx`, `SecurityTab.tsx`, `AmneziaWGLogModal.tsx`, `LogModal.tsx`, `GeodataSection.tsx`) — red `npm run lint` = red CI. Revisit as a deliberate react-compiler migration, then un-revert; dependabot will re-bump.
+
+Conflict resolution (Rule 8, terminal-only): go.mod/go.sum union hunks on #189/#192 (adjacent version lines after earlier bumps) — hand-unions kept both newer versions, `go mod tidy` re-derived go.sum. **PR #194's `.github/workflows/arm64-build.yml` (contributor's one-off ARM64 artifact build, trigger = their PR branch) was dropped in the merge commit** — dead branch trigger + duplicate of release.yml logic; the fix and tests itself are fully in.
+
+**Gates:** LUCX-HOOK marker counts before vs after merges — identical (no lost hooks); gofumpt -l whole repo clean; `go vet ./...` clean; go tests green (`./internal/awg ./internal/lucx ./internal/database ./internal/web/service` — Windows-only TempDir `unlinkat` cleanup races in `TestBulkCreateWithdrawsTombstoneWhenHwidTrimFails`/`TestKernelAWGClientFeatureChecksPreserveSupportedPaths` and one parser `fork/exec` Access-denied pass on retry, documented pre-existing flakes); frontend `npm run typecheck` + `npm run lint` (0 errors on oxlint 1.89) + `vitest run --project=unit` (111 files / 1663 tests) + `npm run build` green.
+
+**lucxVersion:** lucx.354
+
+## lucx.353 — tunnel: online status for csqtt / masterdns / openflux / aivpn (2026-11-09)
+
+Tester report: a CSQTT client showed "offline" in the panel while the tunnel connection was up. Root cause: CSQTT was scoped "No online/traffic" at lucx.233 — nothing in `TunnelJob` ever fed `RefreshLocalOnlineClients` for it, so no one stamped the client email or the inbound tag, and the UI kept the row offline.
+
+**Audit:** naive, mieru, trusttunnel, anytls, olcrtc, qwdtt, tproxy, wgosocks already report online every 10 s; the gaps were **csqtt, masterdns, openflux and aivpn**. All four are plain manager-spawned processes, so the existing generic `/proc/PID/io` relay reader (olcRTC/tproxy pattern — one file read per 10 s tick, no scraping) covers them; the io deltas also carry traffic for free, which is kept (routed csqtt inbounds are excluded via the existing routedTags guard so the policy-route bridge does not double-count).
+
+**Fix:** `Manager.CollectCsqttTraffic/CollectMasterdnsTraffic/CollectAivpnTraffic/CollectOpenfluxTraffic` one-line wrappers over `collectProcIO` in `sidecar_stats.go`, and four `collectXxxTraffic` collectors in `tunnel_job.go` (Run order after wgosocks) reusing `commitSidecarScrape` with `anytlsEmailsForInbound` emails. Attribution follows the proven sole-client rule: exactly one enabled client attached → that client goes green; 2+/0 → no email, only the inbound tag goes live for the Inbounds gate. AIVPN has no panel-client mapping (clients live in the core DB) → tag live only. Idle cores age out via the 120 s `SidecarOnlineGrace` window like every other sidecar.
+
+Verified: `go build` + `go vet` for `internal/lucx/tunnel` and `internal/web/job`, `go test ./internal/lucx/tunnel/ ./internal/web/job/ -count=1` green, gofumpt clean. Docs: `.agents/02-architecture.md` (csqtt/openflux/aivpn bullets).
+
+**lucxVersion:** lucx.353
+
+## lucx.352 — fix: визит панели по IP не обслуживается LE-сертификатом (HideCertWithoutSNI) (2026-11-07)
+
+Tester report: on .350/.351 opening the panel by bare IP served the self-signed `CN=localhost` pair instead of the operator's Let's Encrypt certificate that carries the IP in SAN (`openssl s_client … -noservername` → `CN=localhost`; domain-SNI visits kept the correct LE cert). Rollback to .339 (the HideCertWithoutSNI predates it) worked with the same settings.
+
+**Cause:** `crypto.HideCertWithoutSNI` (`internal/util/crypto/nosni.go`) unconditionally answered a no-SNI (or IP-literal-SNI) hello with the throwaway localhost certificate — the logic never looked at whether the operator's own certificate is VALID for that visit. A browser addressing a server by IP sends no SNI by definition, so every bare-IP visit got masked, and browsers/Kaspersky saw an untrusted name on a cert the operator had issued exactly for that IP.
+
+**Fix (same file + tests):** for a no-SNI/IP-literal hello the hide now applies ONLY when the visiting IP is not covered: `visitingIP(hello)` resolves the visit IP — the SNI IP literal when present, else `hello.Conn.LocalAddr()` (the listener's own address, which is how a real tls.Server sees a bare-IP visit); the wrap-time snapshot of each `Certificates[].SAN` IP keeps the per-handshake check free of DER parsing. A covered visit goes through the normal selection path (`pickReal`, identical ordering with `inner`/`certs`/first-cert fallback as before); an uncovered one keeps the localhost mask (the anti-scan property is preserved — `TestHideCertWithoutSNI` unchanged). A mixed cert (domains + IP) hides on visits to a DIFFERENT IP and passes only the exact match — documented in `TestHideCertWithoutSNIMismatchedIP` (stdlib clients drop SNI for IP literals, so the name-set case is exercised by direct closure calls, the real-dial cases by `handshakeCN`).
+
+Both call sites (`web.go` panel listener, `sub.go` subscription listener) pass statically loaded `Certificates`, no `GetCertificate` loader — no changes needed there. Verified: `go test ./internal/util/crypto/ ./internal/sub/... -count=1` green (the single sub Windows TempDir failure is the documented pre-existing cleanup-race flake), vet + gofumpt clean.
+
+**lucxVersion:** lucx.352
+
+## lucx.351 — scanguard: broken exec argv + probe lie + нативный nftables (2026-11-07)
+
+Tester VPS (ipset 7.19 / iptables 1.8.10 nf_tables): the panel said "install the ipset package" while ipset worked over SSH, and Save&apply died with `iptables rule: exit status 2`. Confirmed from the strace the tester captured: `execve("/usr/sbin/iptables", ["iptables", "iptables", "-w", "5", "-C", "INPUT", …])`. The sets themselves were fine (2784 v4 / 27 v6 entries), so the bug isolated to the rule layer.
+
+**Root cause:** `ruleArgs()` prepended the binary name and `sgCmd(bin, …)` passed it again — every iptables invocation became `iptables <spec…>` with "iptables" as the first argument → `Bad argument \`iptables'` → exit status 2. scanguard therefore never installed a rule on ANY host since lucx.346; the fake-based tests could not see it (joined-string assertions only check substrings). Fix: `ruleArgs(op, set)` no longer takes `bin`; callers prepend through `sgCmd` (argv shape now matches the working wgo firewall). Regression assert in `TestApplySwapsSetsAndEnsuresRules`: no call argv starts with `iptables iptables` / `ip6tables ip6tables` (and the fake now records per-token `argv`).
+
+**Sweep tokenization (found by live smoke):** `removeFirewall` passed the whole parsed `-A` spec as ONE argv token — `iptables -D INPUT "-m conntrack …"` → `Invalid match name " … " (28 chars max)` exit 2. Disable never swept anything. Now `-D` gets `strings.Fields(spec)` per token, like `wgoDeleteArgs`.
+
+**Banner lie:** `probeStatus()` set `IpsetAvailable` from `ipset list lucx-sg4` — i.e. the SET existed, not the binary: on a fresh host the page showed "install the ipset package" forever (the tester's screenshot). Now `IpsetAvailable = sgCmd("ipset", "version")` succeeds (`ipset version` exit 0 on v7.x); set entries probe per family, and `RulesV4/V6` probe independently of ipset state. Tests: `TestProbeStatusWithoutSets` (ipset present, sets absent → available=true, entries 0), `TestProbeStatusWithoutIpset` (no binary → available=false).
+
+**Readable exec errors:** `sgCmd`/`sgIpsetRestore`/`sgNftRestore` discard nothing anymore — failures append the tool's first stderr line (`iptables rule: exit status 2: Bad argument \`iptables'`). Bonus discovered live: iptables-nft `-C` against a missing set also exits 2 ("Set lucx-sg4 doesn't exist") — the operator now sees the reason instead of a bare code.
+
+**Native nftables backend (`nft.go` + dispatch in `firewall_linux.go`):** hosts without usable ipset/iptables tooling get the guard purely through `nft`. `detectBackend` (var, test-forced) picks by binary presence: iptables+ip6tables → ipset+iptables path (unchanged behavior); ipset missing but `nft` present, or iptables absent → nft; neither → "" and the existing install hint. The nft path is ONE owned table `inet lucx_scanguard`: sets `lucx-sg4`/`lucx-sg6` (`flags interval`) + hooked chain `input` (`policy accept`, priority 0) dropping `ct state new` for `ip/ip6 saddr @set`; each refresh replaces the table atomically (add-table → delete-table → declare, one `nft -f -` transaction — no temp sets at all). nft interval sets reject overlapping elements, so `minimizeList` eliminates nesting (sort addr-asc/bits-asc + single pass over the last kept prefix); `nftSetCounts` reads `nft -j list table` output tolerantly (elem counts only — element shapes vary by version); rules probed via `nft list chain` set references; disable = `nft delete table`. `ProbedStatus` gained `backend` (shown as a status row + in the API docs example; i18n key in all 14 locales, en subtitle mentions nftables, ru: «через ipset + iptables или нативный nftables»).
+
+Verified against live firewalls in WSL Ubuntu 24.04 (temporary smoke tests, deleted after the session): iptables path — restore swap → `-C` (exit 1 absent) → `-I INPUT 1` → `-C` (0) → `-S` dump → tokenized `-D` → `destroy`; nft path — one-transaction apply → probe (`backend:nft`, counts via `-j`, rules via chain text) → re-apply without duplication → clean delete. Tests: `go test ./internal/lucx/... -count=1` green on Linux (root run, 10 packages), `GOOS=linux go vet/build` clean, gofumpt clean. Frontend: typecheck, lint, vitest unit `i18n-dead-keys` + `navigation-contract` green (full-suite run shows known load-flaky tests — failures vary 1–4 between identical runs and pass standalone; pre-existing), `npm run build` + `npm run gen` regenerated (`public/openapi.json` carries `backend`).
+
+**lucxVersion:** lucx.351
+
+## lucx.350 - aivpn: anti-DPI UDP VPN sidecar (infosave2007/aivpn) (2026-11-07)
+
+New tunnel sidecar core `aivpn` (protocol `aivpn`, one inbound per host): [infosave2007/aivpn](https://github.com/infosave2007/aivpn) `aivpn-server` (MIT, rust) - a UDP VPN gateway whose traffic is masked as STUN / QUIC v1 (HTTP/3 CONNECT-UDP) / ICE media flows; PFS ratchet built in. Needs root (the core installs its own TUN + NAT, nftables-to-iptables fallback incl. the DOCKER-USER fix). No routeThroughXray: it is a raw UDP VPN, not a TCP/SOCKS proxy.
+
+**Core** (`internal/lucx/tunnel/aivpn.go`, `aivpn_inbound.go`): the panel renders `bin/tunnel/aivpn.json` (`--config` argv, ConfigText fingerprint like naive) with per-instance paths inside `aivpn-data/` (server key, clients.json, audit.log, management unix socket `mgmt.sock`); `server_ip` auto-fills from the outbound IP or the operator field. **Rule 0**: the server key is minted once (`EnsureAivpnKeyFile` never rewrites) and connection keys (`aivpn://base64url(json)`) are minted by the core; the panel only relays the management API. The subnet is id-derived (`10.(200+id%54).0.1/24`, stable per inbound, away from CSQTT 10.66 / qWDTT 10.68 / AWG 10.254) or stored when the operator sets it. **Client surface (model B - no LucX-client mapping):** `internal/web/service/aivpn_clients.go` + controller routes `/panel/api/tunnel/aivpn/{status,logs,upload,download,deleteBinary,clients,clients/add,clients/enable,clients/delete}` relaying the core management API (`GET/POST/PATCH/DELETE /api/v1/clients*`) over the socket (tolerant JSON parsing - shapes verified at the first E2E). Rows carry name / enabled toggle / bytes in+out / last connected / issued key with QR in the inbound form (`protocols/aivpn.tsx`, uses the AWG inbound-id context). No subscription/JSON-Clash entry - no share link format.
+
+Wiring: registry + `configPath` json + workdir/data-dir cleanup files (manager), `model.Aivpn` + oneof, `lucxRuntimeSidecar` / `isTunnelInboundProto` / runtime Add/DelInbound delegation, reconcile in `TunnelService.Reconcile`, protocol gated in capabilities/defaults/schemas/form tabs/command palette/Cores/endpoints registry, i18n keys in all 14 locales. Packaging: `bin/pack-sidecars.sh` pins upstream release v1.2.0 (`80deb78`, InitialV2 - servers and clients move together; reactive bump policy like OpenFlux), `aivpn-linux-{amd64,arm64}` from upstream `aivpn-server-linux-x86_64` / `-aarch64-musl`; pins loop + `install.sh` list extended (masterdns was missing from both - added). Attribution: README mention + license tables, `docs/LICENSING.md` (MIT component), API reference regenerated via the docs-site `gen:api`.
+
+Tests: `aivpn_test.go` - id-stable subnet derivation (collision band), config render (paths/listen/CIDR parse, IPv6 gate), key file written exactly once, instance disabled/must-not-spawn, fingerprint changes with the port. Green: `go test ./internal/lucx/... ./internal/database/...`, gofumpt, typecheck/lint, vitest unit (1663), build, docs openapi cmp-gate.
+
+**E2E gate (before ship):** verify upstream field names live (`management_socket` JSON key, client create/patch shapes, socket dir permissions) on a Linux stand - DeepWiki-derived shapes are tolerant but unproven; root stand + official APK 1.2.0.
+
+**lucxVersion:** lucx.350
+
+## lucx.349 — masking: REALITY self-SNI pair (issue #171) (2026-11-07)
+
+Requested by XaksFlaX: VLESS REALITY with the node's own name as SNI next to the WEB-proxy site on the same :443. Manual layout (REALITY `target=127.0.0.1:<site-port>`, site hostname == REALITY serverName) works without Masking and is proven on production nodes; Masking refused it — `SNIClash` returned "duplicate SNI" for the shared name, and the Cover hint said REALITY must keep a foreign SNI.
+
+Implemented in Masking, opt-in by design (the lucx.269 lesson about never silently rewriting REALITY dest limits how far this goes): a **self-SNI pair** — exactly one selected SNI-locked (REALITY) row and exactly one selected site-front row sharing a name — is allowed **only when the stealing actually applies in this Apply**: the REALITY row is pre-marked (dest already points back at this server, auto-steal) or explicitly in `req.Steal`, AND a Cover row is selected (its loopback port is the steal target). `tunnel.SelfSniRealitySNI` returns the shared name (any other overlap — two REALITY rows, non-stealing pairs — keeps clashing), `SNIClashAllow` exempt exactly that name in the Apply check, and `RoutesFromPreview` routes SNI-locked rows **before** the site front so the L4 mux sends the shared name to Xray; failed handshakes fall back to the site through the rewritten `dest: 127.0.0.1:<cover-loopback>` (existing steal loop). Pass-order refactor is a no-op for every layout without that overlap. `gateway_inbound.go` keeps using persisted `cfg.Routes`, fallback preview path gains the same order.
+
+Frontend: the wizard's client-side `sniClash` allows the same pair under the same condition (`sniLocked && (steal list || stealDest) && coverOn`), and the Cover note now names both REALITY modes — foreign dest SNI, or shared own name with the steal toggle. coverNote text updated in all 14 locales.
+
+Tests: `TestSelfSniRealityPair` — clash without opt-in; allowance via pre-marked StealDest or explicit `req.Steal`; two REALITY rows on one name stay ambiguous; route table hands the shared SNI to the REALITY backend. Existing gateway tests (route order for non-overlapping layouts) unchanged and green.
+
+**lucxVersion:** lucx.349
+
+---
+
+## lucx.348 — tproxy: Telegram DC reachability gate before MTProxy start (issue #170) (2026-11-07)
+
+Reported by XaksFlaX: the official MTProxy has no outbound rate limit (`outbound-connections-ps` is commented out in `mtproto-proxy.c`), so on a host that cannot reach Telegram (outbound traffic through NAT) the engine reconnects to every DC/middle-proxy address nonstop — ~60 new TCP connections per second, ~7000 NAT sessions from one VM, until the home router stops opening new connections for every device. LucX started it with `-M 1 -C 4096` and no reachability check.
+
+Gate in `internal/lucx/tunnel/` (issue reporter's preferred option 1): `tproxy_mtproxy.go` gains `tgProxyAddresses` (extracts distinct IPv4:port entries from the engine's own `proxy-multi.conf`, regardless of the key they ride on; dedupe; up to 6 spread across the file) and `tgProxiesReachable` (TCP probes, 750 ms each, stop at the first success; cached in-process — reachable verdict 10 min, failed verdict 5 min, so a NAT-blocked host probes ~6 addresses a few times per TTL instead of on every 10s reconcile tick). `TproxyInstancesFromInbound` runs the gate right after `ensureTelegramMtproxyFiles` and returns `disabledWhy` when nothing answers — the whole stack stays down with a clear panel-log reason, exactly like the arm64 mtproxy precedent. A config without parseable addresses never gates the start. Windows/arm64 dev unaffected (no conf → no gate).
+
+Frontend: warning Alert in the WEB-proxy inbound form (legacy backend only — mtproto-zig dials differently) naming the requirement: outbound traffic must reach Telegram DCs directly (TCP 443/8888); reason visible in the panel log. Key `pages.inbounds.form.tproxyDcTip` in all 14 locales.
+
+Tests: `tproxy_dc_test.go` — extraction/dedupe/even-spread limit, stop-at-first-success, cache suppresses re-dial until TTL expiry, no-address conf never gates, no dialing without addresses. Existing `TproxyInstancesFromInbound` tests keep passing (dummy conf has no addresses). Green: `go test ./internal/lucx/tunnel/...`, gofumpt, typecheck/lint, i18n dead-keys.
+
+**lucxVersion:** lucx.348
+
+---
+
+## lucx.347 — Clean IP scanner + VLESS-through-CDN recipe (2026-11-07)
+
+Second chat request from the same session (Tuna): find "clean" Cloudflare edge IPs without a separate desktop tool. Scope decision (Rule 0 + chat consensus): **scan-only** — the panel probes but never auto-replaces endpoints or runs timers; the operator copies a healthy address into the client/outbound config. Auto-replace of a raw Xray outbound JSON is out of scope.
+
+New package `internal/lucx/cleanip/` (PolyForm): the 15 published Cloudflare IPv4 ranges, random sampling (`math/rand/v2`), TCP probe pool (32 workers, per-probe timeout), optional TLS handshake verification against an operator SNI (default `www.cloudflare.com`) with failed-TLS addresses dropped, results sorted TLS-verified first then by latency and truncated to `count`. Dialers/sampler are package vars — tests inject a fixed batch and fake TCP/TLS (drop unreachable, drop TLS-fail, rank, bounds validation). Web layer: `service/cleanip.go` (clamp: port 443, count 30/≤100, sample 256/≤4096, timeout 1500ms/≤10s; empty SNI + tlsCheck → default SNI), `controller/cleanip.go` — `POST /panel/api/cleanip/scan` (synchronous; nothing persisted). LUCX-HOOK in `controller/api.go`.
+
+Frontend: `pages/cleanip/CleanIpPage.tsx` (RHF/Zod params form: port / top-N / sample / timeout / TLS-check switch + SNI; Scan button → AntD table with copyable addresses, latency, TLS tag), `api/cleanip.ts`, `schemas/cleanip.ts`, `/cleanip` route + `menu.cleanip` + palette keywords, api-docs section `cleanip`. `pages.cleanip` keys in all 14 locales.
+
+Docs: new operator guide `docs/content/docs/en/operations/vless-cdn.mdx` (+ meta.json) — Cloudflare-proxied and self-hosted nginx/Caddy variants for VLESS-WS-behind-CDN, gotchas (no UDP on free CF, gRPC toggle, panel stays unproxied), and the Clean IP scanner as the edge-IP picker the recipe references. `docs/public/openapi.json` re-synced from the frontend and the API reference regenerated — new pages `reference/api/scanner-guard.mdx` and `clean-ip.mdx`.
+
+Tests: `go test ./internal/lucx/...` green, `go build ./internal/...` / `go vet` clean, `npm run typecheck` / `lint` / navigation contract / i18n dead-keys green. Real scans should be validated on a tester VPS (Windows dev box has no route to probe meaningfully).
+
+**lucxVersion:** lucx.347
+
+---
+
+## lucx.346 — Scanner Guard: ipset banning of RKN scanner subnets (2026-11-07)
+
+Chat request (theradiotimes + others): block the scanner/bot subnets probing panels and inbounds — the same protection the community tools (rkn-guard, remnanode-antiscan RKN mode) provide, implemented natively. Research verdict: those tools do **list-based** ipset blocking, not log analysis — this implementation follows that model (no false bans of real clients, no dependency on the Xray access log).
+
+New LucX package `internal/lucx/scanguard/` (PolyForm): fetch CIDR sources over HTTPS (30 s timeout, 20 MiB cap, strict one-CIDR-per-line parse — a single bogus line or an unreachable source aborts the refresh), safety filter (skip subnets wider than /8 v4 · /32 v6 + private/loopback/link-local/multicast), whitelist subtraction (exact or contained CIDR only), then an **atomic ipset swap**: temp `hash:net` set is filled via one `ipset restore -exist` batch per family → `swap` → `destroy` (lucx-sg4/lucx-sg6, traffic between refreshes keeps hitting the previous set).INPUT rules are owner-marked (`--comment lucx-scanguard`), drop only `-m conntrack --ctstate NEW -m set --match-set … src` — established sessions (e.g. a live SSH from a listed subnet) survive list updates; rules are re-parsed from `iptables -S INPUT` and swept on disable, same technique as the wgo firewall (`obfuscator_firewall_linux.go`). One rule + one set per family — no per-IP rules (Slava's explicit requirement). Non-Linux builds keep no-op stubs.
+
+Web layer (all new files, PolyForm + SPDX): `service/scanguard.go` — settings keys `scanguardEnabled` / `scanguardSources` / `scanguardWhitelist` (+ `scanguardLastUpdated` / `scanguardLastError`, no schema/DB changes, vanilla-overlay safe), default source = `shadow-netlab/traffic-guard-lists` `government_networks.list`; `job/scanguard_job.go` on `@every 30m` (+ boot run like tunnelJob): sweeps rules when disabled, re-applies as soon as rules or sets are missing (reboot, iptables flush by fail2ban/docker — same hazard AWG `ensureNatRules` guards), and re-fetches lists at most once per 6 h; `controller/scanguard.go` — `/panel/api/scanguard/{status,config,refresh}` (LUCX-HOOK in `controller/api.go`; cadence const in `web.go`). SSH is never port-blocked by design — whitelist the operator's subnet instead. Docker bridge (FORWARD) traffic is out of scope, documented.
+
+Frontend: `pages/scanguard/ScanguardPage.tsx` (status card: badge, blocked-subnet count, firewall rules state, last update, last-error alert, ipset-missing hint) + RHF/Zod form (enable switch, sources textarea, whitelist textarea, Save & apply, Refresh now), `api/scanguard.ts`, `schemas/scanguard.ts`, query key `keys.scanguard()`, `/scanguard` route + `menu.scanguard` in `panelRoutes.tsx`, command-palette keywords, API-docs section `scanguard` in `endpoints.ts` + `npm run gen` (openapi.json regenerated), `pages.scanguard` keys in **all 14** translation files (dead-keys contract holds).
+
+Tests: `scanguard_test.go` (platform-neutral: strict parse/dedupe/safety filter/whitelist coverage, source-failure aborts) + `firewall_linux_test.go` (Linux: faked `sgCmd`/`sgIpsetRestore` — set swap content, both-family rule insertion, owner-only sweep keeps foreign rules, status probe). Green: `go build ./internal/...`, `go vet`, `go test ./internal/lucx/...`, gofumpt, `npm run typecheck` / `lint` / `vitest run --project=unit` (111 files / 1663 tests) / navigation contract. Requirements: `ipset` + `iptables` on the host (op installs the package; the UI shows a hint when `ipset` is missing). Real-firewall validation on a tester VPS before release.
+
+**lucxVersion:** lucx.346
+
+---
+
+## lucx.345 — tunnel: qwdtt writes only errors to the shared log, full output in the Logs viewer
+
+Debt repaid 2026-11-07 (the commit landed on main without its progress entry):
+
+`fix(tunnel)` from commit `31766af2`: the qWDTT engine writes its full output only to the per-core Logs viewer now; the shared overview log receives **errors only**, so one noisy qWDTT process cannot flood the panel-level log. Behavior of the engine itself unchanged.
+
+**lucxVersion:** lucx.345
+
+---
+
+## lucx.344 — sub: HWID device IP behind a reverse proxy uses trustedProxyCIDRs (2026-11-06)
+
+Reported by a tester (Orca): behind nginx (`location ^~ /sub/ → https://192.168.11.10:2096`, headers per our own reverse-proxy generator: `proxy_set_header X-Real-IP $remote_addr; X-Forwarded-For $proxy_add_x_forwarded_for`) the HWID Devices / Clients "Devices" column showed the **nginx host's LAN address** next to a correct HWID. Cause: `enforceHwid` (LUCX-HOOK, `internal/sub/controller.go`) recorded `c.RemoteIP()` unconditionally — the socket peer, which is the nginx box whenever the panel is proxied. lucx.342's deliberate "socket peer, headers forbidden" choice was correct only for the direct-reachable panel.
+
+Fix (new `internal/sub/client_ip.go`): `subscriptionClientIP(c)` mirrors the login limiter's trusted-proxy resolution (`controller/util.go getRemoteIp`, which the sub package cannot import — cycle via `controller → sub`). Socket peer stays the answer unless that peer is inside **`trustedProxyCIDRs`** (the existing panel setting; the sub package's own `remoteAddrInCIDRs` reused). A trusted proxy's `X-Real-IP` / `X-Forwarded-For` (walked from the proxy end, spoof-proof by construction, strict bare-IP parse) then names the visitor; mismatched `X-Real-IP` vs XFF falls back to the peer. Never-log-IPs masking (lucx.342) applies as before. `trustedProxyCIDRs` untouched for panel links — X-Real-IP is still never a host to connect to (#6589, lucx.125).
+
+**Operator action for the reported topology (nginx not on the panel host):** panel → Settings → the `trustedProxyCIDRs` field must include the nginx address, e.g. `127.0.0.1/32,::1/128,192.168.11.0/24`. Shipped default (loopback only) keeps recording the socket peer for non-loopback proxies, and a direct request still cannot name its own IP.
+
+Tests: `internal/sub/client_ip_test.go` — spoof from untrusted peer ignored; nginx-LAN X-Real-IP recorded; loopback default; XFF chain walked from the proxy end; client-sent XFF entry dropped; mismatched headers → peer; non-IP header values → peer. Green: `go build ./...`, `go vet ./internal/...`, `go test ./internal/sub/`, HWID service tests. lucxVersion bump (`config.go`).
+
+**lucxVersion:** lucx.344
+
+---
+
+## lucx.343 — install-awg-module: honest rebuild gate + dkms install fallback (2026-11-05)
+
+Live (n9): the module was rebuilt from pin `4569c4c` but `/lib/modules` kept the pre-lucx.340 artifact stamped `3.1.20260812` — the dashboard pill showed the frozen upstream number while `/var/lib/dkms` held a correct `3.1.20260906` build. Three failures stacked:
+
+- **Gate:** the marker (`4569c4c`) matched the pin, so the gate skipped forever while the `.ko` predated the lucx.340 `version.h` sed.
+- **Rebuild:** `rm -rf /usr/src/amneziawg-$MOD_VER` leaves `/var/lib/dkms/amneziawg/$MOD_VER` — dkms reports "already built/installed" and skips.
+- **Copy:** even a genuine rebuild loses the copy step: `dkms install` skips on an existing same-vermagic artifact, the fresh `.ko.xz` stays in `/var/lib/dkms`; DKMS 3.x's "specify --force" hint mis-parses `--force` as a kernel name.
+
+Fix in `bin/install-awg-module.sh`: the gate compares the installed artifact's stamp (`modinfo -F version` of the booted kernel) against `AWG_KMOD_TAG` and rebuilds on mismatch (one honest rebuild per host, sed'ed); a same-version build clears `/var/lib/dkms/amneziawg/$MOD_VER` before `dkms add`; `install_built_ko` cmp's the built `.ko` against `/lib/modules` and copies + `depmod`s on mismatch; after install the booted-kernel artifact must carry the `${AWG_KMOD_TAG#v}` stamp or the script exits non-zero before writing the marker. Validated end-to-end on n9 (Debian 13, three kernels). Release debt closed: `docs/` API reference regenerated (`docs/pnpm gen:api`, `clients.mdx` HWID devices description was stale since lucx.342 — Docs CI red on main since). lucxVersion bump (`config.go`) — no panel code touched.
+
+**Release shipped:** main CI green on the fix commit (golangci/go-test/frontend + CodeQL), tag `v3.11.0-lucx.343` (80bc4411): Release run green (amd64/arm64 tarballs + windows zip, sha256), Docker on the tag, RU+EN notes filled (installer fix + the already-live Mr. Zaic nickname).
+
+**lucxVersion:** lucx.343
+
+---
+
+## Sponsors: Pong-tier patron now shown by nickname (2026-11-05)
+
+A patron asked to stop displaying their real name. The Pong-tier Boosty entry now shows the nickname "Mr. Zaic": `sponsors/3X/sponsors.json` (id renamed to `boosty-mr-zaic`, name + title ru/en) and the README financial-supporters block in all 7 locales. JSON validated; no code references to the old id.
+
+**lucxVersion:** lucx.342 (no bump, docs only)
+
+---
+
+## lucx.342 — tester patch: multi-IP masking fixes, client devices/IP privacy, probe resistance (2026-11-05)
+
+Accepted the tester's full patch (target `v3.11.0-lucx.339`, 126 files, +5878/−213; it applies cleanly on our lucx.341 main because none of its hunks overlap 340/341). Parts:
+
+- **A (fixes):** AnyTLS/Mieru honour a specific Listen IP; masking fixes — IP-aware bind overlap, gateway binds all masked inbounds' own IPs (links keep their address), panel-listener occupancy check before Apply; orphan "gateway" Host sweep only deletes rows older than 5 min that no snapshot references; `jsonlenient` GORM serializer on six Host list columns — one malformed row (e.g. `alpn = "h2,http/1.1"`) no longer 500s every subscription (write format unchanged).
+- **B (features):** clients page "Devices" column (HWID devices vs limit, live inbounds, live IPs with geo/ASN labels); `client_hwids.last_ip` column; geo labels from local MMDB only — GeoLite2 wins if operator-supplied, else panel auto-downloads keyless DB-IP Lite monthly (atomic tmp+validate, retries 6 h); Xray log `maskAddress` respected; per-client `neverLogIps` (no live IP, no device IP, no IP-limit log; stored IPs wiped on enable; IP limit cannot apply — documented in the form); touch/mobile UX (16 px inputs on coarse pointers, 44 px close buttons, dvh heights, bottom sheet with body scroll lock); disable confirmation for clients.
+- **C (gateway/Cover/probe resistance):** XHTTP/gRPC reached over h2c with streaming (`flush_interval -1`), proxy paths excluded from site compression; one Cover per IP; unified gateway owns :80 (redirect + ACME relay, panel IP included); loopback port collisions reserved in preview; Cover "Local site port" (h1/h2c loopback) + "Sign-in page"; no fake `Server: nginx` (drop Server instead); AnyTLS fallback site + per-user passwords (`-users-file`, HMAC-derived, shared password stays valid) + PROXY v1 + `-stats` JSON per user; TrustTunnel reads PROXY v1 via new `third_party/patches/trusttunnel-proxy-protocol.patch` (build: `bin/build-trusttunnel.sh`, cargo-zigbuild) + `per_client_metrics` `/clients` scrape; WS/XHTTP/gRPC real IPs via `sockopt.trustedXForwardedFor` applied at config build time; gateway Revert keeps edits made while masked (`appliedSettings` snapshot + `MergeRevertJSON`); fresh-install `bin/tunnel` 0700 fix (`mkdirPrivate`).
+- TrustTunnel up/down accounting corrected: `inbound_traffic_bytes` is what the client downloads (pipe.rs direction); the parser and per-user counters map accordingly.
+- Update-callers audit: every production `ClientService.Update` path passes a full client (`rec.ToClient()` in traffic resets; API `updateClient` contract) — `neverLogIps` cannot be cleared by a partial update.
+- License/merge hygiene while accepting: SPDX PolyForm headers added to all new LucX files (tester put one only on `cover_xff.go`); unmarked edits in origin twins wrapped in LUCX-HOOK (`sub.go` decoy wiring + appended helpers, `web.go` NoRoute decoy + `decoyProxy`, `xray_traffic_job.go` devices broadcast, `setting.go` decoy keys/getters, `sub/controller.go` hwid IP, `client_hwid.go`, `client_paging.go`, `client_link.go`); piles 1/2/3 in `.agents/08-hooks.md` updated. Deliberately unmarked (catalogued in pile 2/Traps): `model.go` LucX fields + `jsonlenient` tags (repo precedent), `endpoints.ts` doc strings, `HostFormModal.tsx` dvh line, CSS dvh/table edits.
+- `TestMkdirPrivateKeepsWorkDirReachable` got `//go:build unix` — POSIX permission semantics, NTFS always shows `-rwxrwxrwx` (repo pattern: unix-only tests).
+- Verified locally (Windows, CGO via MinGW): `go build ./...`, `go vet ./...`, `gofumpt -l .`, `go test` awg/lucx/database/web-service/web-job/sub — green; frontend `npm run gen` (generated files + `openapi.json` reproduced), `typecheck`, `lint`, 1662 unit tests, `build` — green.
+- **PRs merged into this version (mitrillov):** #185 — per-subscriber client-side Cloudflare WARP in the JSON subscription (`subJsonClientWarp`: leastPing balancer of WireGuard-to-Cloudflare outbounds with fallbackTag to the original outbound, per-sub WARP account in a new `client_warp_accounts` table, off by default, translated in all 13 locales); #184 — CSQTT member links can carry the VK access token (`vkTokenInLink`, yields to explicit VK hashes) and members follow a CSQTT group (`memberGroup`); verified the pinned CSQTT v2.5.0 (fd936ef0) serves `/api/groups`, `/api/clients/{password}/vk` and `/api/clients/batch-group`. Hygiene on merge: SPDX headers on 7 new files, LUCX-HOOK markers on the upstream twin edits (`setting.go`, `sub.go`, `json_service.go`, `controller.go`, `entity.go`, `SubscriptionFormatsTab.tsx`), gofumpt on the new Go code.
+- **Release shipped:** pushed to `gh` with PRs #184/#185 marked merged automatically; CI green (one rerun of the `race` job: upstream `TestScreenArtReprobeWindow` flakes under `-shuffle=on` — screenart test, not ours — passed back-to-back on rerun). Tag `v3.11.0-lucx.342`: the release run is green, assets `x-ui-linux-{amd64,arm64}.tar.gz(+sha256)` + `x-ui-windows-amd64.zip(+sha256)` (the Windows job died once on a transient mtg-multi download, passed on rerun), Docker images built, RU+EN release notes filled.
+- **Sidecars closed (was owed):** vendored `anytls-linux-amd64.gz` rebuilt here (Go cross-compile, all four overlay markers verified) and `trusttunnel-linux-amd64.gz` rebuilt in WSL via `bin/build-trusttunnel.sh` (`--version` = `1.3.0-beta.2+lucx.proxy`, 2m43s after installing `python3-venv` + `libclang-dev`); arm64 was built fresh by the release CI — both "Check" steps passed. `bin/build-trusttunnel.sh` reordered (`cargo-zigbuild` installed after the source's `rust-toolchain.toml` toolchain) — it previously died on a fresh machine with `--default-toolchain none` before the toolchain existed.
+- **Still owed:** translations — lucx.342's new UI keys are English in 12 locales (ru-RU done); PR #185/#184 keys shipped translated. Docs tail of this release can skip sidecar steps in future release notes.
+
+**lucxVersion:** lucx.342
+
+---
+
+## Fix: node-hosted SNI gateway mirror blocked disable/delete and node deletion (lucx.341)
+
+Tester report: toggling off (or deleting) a node-hosted SNI gateway inbound failed with "gateway inbound not found", and deleting that node then failed with "1 inbound(s) still attached" — a deadlock. Root cause: `setRemoteTraffic` mirrors every inbound a node panel reports, including the node's own SNI gateway with its masking snapshot in settings; the disable/delete hooks (`SetInboundEnable`, `UpdateInbound`, `delInbound`) then asked the master to revert a mask it never applied, and `gatewayAndOthers` (panel-local by design, `NodeID != nil` skipped) refused. A master-side revert would also be destructive: snapshot rows name the NODE panel's inbound ids, while master mirror row ids are unrelated.
+
+Fix: `DisableGatewayMask` returns "nothing to revert" for a node-hosted gateway inbound; the pushed disable/delete makes the node panel revert its own mask on the right host. The masking page never could select a node-hosted gateway (`nodeId == null` filter), so apply/preview/revert are unchanged.
+
+**lucxVersion:** lucx.341
+
+---
+
+## lucx.340 — truthful AWG module stamp (2026-11-02)
+
+Follow-up on the lucx.339 release. A tester report (tg Lucx_soft) showed the dashboard/Core pill stuck on `3.1.20260812` after the 339 update + reboot, and it was unclear whether the 0906 module was actually running.
+
+- Upstream freezes `src/version.h` (`#define WIREGUARD_VERSION "3.1.20260812"`) on every tag since 0812 — including `v3.1.20260828` and `v3.1.20260906`. A DKMS build never sets the `WIREGUARD_VERSION` make variable (`make -C $kernelsrc M=$tree modules` bypasses `src/Makefile`), so the static header wins: sysfs / dashboard pill / `modinfo` reported `3.1.20260812` for every module we built since the DKMS path appeared (see Pattern 1ai, `.agents/07-debug-awg.md`).
+- `bin/install-awg-module.sh` now adds `AWG_KMOD_TAG="v3.1.20260906"` and sed'ed `version.h` to the tag (no `v`) before staging + DKMS build → the pill and `modinfo -F version` show the release actually built. The stamp stays parseable `X.Y` on purpose: `moduleVersionAtLeast` / masked-kallsyms fallback (Pattern 1ah) trust a 3.x sysfs value; a bare SHA would drop HPK/timers on sandboxed hosts. Verified by sed on the exact upstream `version.h`.
+- Tools pin unchanged — and intentionally: upstream `amneziawg-tools` master == latest tag `v3.1.20260812` (`ee0f0a9aa`), so `3.1.20260812` in Cores IS current; the version just reads "old" next to the module tag `20260906` because upstream has not cut a tools release since.
+- Marker (`/etc/x-ui/.awg-module-version`) stays the rebuild gate; the sed makes the readable stamp agree with it.
+
+**lucxVersion:** lucx.340
+
+---
+
+## lucx.339 — AWG kmod pin to upstream head (2026-11-02)
+
+Caught the AmneziaWG kernel-module pin up with upstream master.
+
+- `bin/install-awg-module.sh` `AWG_KMOD_PIN` `3c38e168` (`v3.1.20260828`) → `4569c4c67f3a` (`v3.1.20260906`). Upstream diff is exactly one commit: "do not append random trailers to I1-I5 and dummy junk packets" (`src/send.c` / `socket.c` / `socket.h` only) — RandomTrailers no longer corrupts initiation/junk framing; relevant to our 3.1 RandomTrailers feature (cf. amneziawg-go#183 note in `internal/awg/params.go`).
+- No UAPI/netlink change on that path → panel tools pin stays `v3.1.20260812` (still upstream head); `compat/compat.h` untouched → the in-script DKMS compat patchers (udp_tunnel, timer_delete, chacha, blake2s) apply unchanged.
+- Already at head, no change: `go.mod` amneziawg-go `v3.1.20260828` (upstream master == tag), `scripts/install-amneziawg-kernel.sh` (`v3.1.20260906` module + `v3.1.20260812` tools, upstream #6877).
+- Next `x-ui update` on hosts: marker SHA no longer matches pin → one DKMS rebuild (`--no-kernel-upgrade` default behavior unchanged, `.awg-reboot-needed` flow intact).
+- Owed: live DKMS rebuild on the stand (`Cores → Rebuild`) before release.
+
+**lucxVersion:** lucx.339
+
+---
+
+## lucx.338 — stage 3d: подписочный шов sub/after
+
+- Новый permission `sub: ["after"]` (закрытый словарь, дубликаты и
+  неизвестные значения отклоняются на установке; `sub` + `network:["none"]`
+  запрещены — панели не добраться до сокета плагина из изолированного
+  netns). Read/export отдельного шва не получил: `panelApi: ["clients:read"]`
+  уже покрывает `/clients/export`, `/clients/subLinks/:subId`,
+  `/clients/links/:email` (open question 3 решён).
+- Шов: для каждого raw-тела `/sub/:subId` панель POST-ит контекст
+  `{subId, host, count, emails}` на `/_lucx/sub/after` сокета плагина и
+  ДОБАВЛЯЕТ пришедшие ссылки после клиентских записей. Аддитивно (rules
+  0/0b): существующие записи не переписываются; expired/depleted-ответы узла
+  информации, страница подписки, json/clash/awg-тела и линк-дисплеи панели —
+  без инъекций. Лимиты: 300 мс на вызов, строки ≤2 KiB, ≤32 ссылок от
+  плагина, ≤64 на тело; любая ошибка плагина — fail-open (первая ошибка
+  пишется в plugin.log, счётчики delivered/failed в runState).
+- Сокетная инфраструктура расширена: `needsSocket()` (events ИЛИ sub) —
+  RuntimeDirectory, env `LUCX_PLUGIN_SOCKET` и регистрация сокета живут и
+  для sub-after-плагинов; после рестарта панели сокет восстанавливается по
+  эвристике `/run/x-ui-plug-<id>` (без exec).
+- Пример: `docs/examples/plugins/sub-extender/` (логирует контекст, отдаёт
+  одну статическую ссылку). UI: тег «Injects sub links» + `subAfter` во всех
+  14 локалях; тест карточки обновлён.
+- Тесты: `subafter_test.go` (грамматика, netns-конфликт, вызов с нагрузкой,
+  трим/капы, пропуск неgranted/упавших, эвристика пути сокета).
+- LIVE stand verification (2026-11-02, dev build d08966cd): sub-extender
+  (unit runner, `sub: ["after"]`) — raw `/sub/:subId` body shows the client
+  entry, then `socks://127.0.0.1:1080#sub-extender-extra` appended after it;
+  plugin.log shows the context line `SUB/AFTER subId=testsub1 host=localhost
+  count=1 emails=1`; with the plugin stopped the injected line disappears
+  while the client entry stays untouched; a panel restart keeps the unit
+  running and the injection flowing (socket re-arm heuristic, no status
+  poll); `sub` + `network:["none"]` and a bogus sub rule are refused at
+  install; test client/daemon deleted, no units left.
+
+## lucx.338 — stage 3c: panel API seam + bot token seam (AllIsA1 contract)
+
+- `permissions.panelApi` becomes grantable: entries `<resource>:<kind>`
+  (kind read/write/*; closed resource vocabulary: clients, inbounds, hosts,
+  server, awg-outbounds, sidecar-outbounds, tunnel; GET/HEAD=read else
+  write; unknown resource/kind/duplicates refused at install). Stage 2's
+  "must stay empty" rule is replaced by the grammar; empty lists keep the
+  old no-access behavior.
+- Panel grants the plugin a scoped bearer credential at start: persisted at
+  `bin/plugins/<id>/.panel-token` (0600), survives panel restarts
+  (`LoadPanelTokens` re-arms the matcher; `GrantPanelToken` idempotent;
+  `Remove` drops it). Env delivery: `LUCX_PANEL_TOKEN` + `LUCX_PANEL_URL`
+  (loopback base, https when the panel listener is TLS — the loopback dial
+  is documented as verification-off for this one connection; also delivered
+  to the unit runner via `-p Environment=`).
+- Enforcement lives in the production auth path: `checkAPIAuth` resolves a
+  plugin bearer to `plugin_id` + `ApiScopePlugin` (new constant, not a DB
+  scope), then `enforceTokenScope` case allows a call iff
+  `plugin.PluginPanelAllowed(id, rel, method)` — never-reachable list wins
+  (`/plugins/**`, `/setting/**`, `/xray/**`, `/nodes/**`, `/backuptotgbot`,
+  importDB/getDb/updatePanel/getMigration/restartPanel/getNew*/
+  downloadXray/restartXray*/stopXrayService/installPanel/updateConfig/
+  logs/:type/checkPanelLoginSecurity).
+- `permissions.bot` (telegram, discord) delivers the panel-stored tokens as
+  `LUCX_TELEGRAM_BOT_TOKEN` / `LUCX_DISCORD_BOT_TOKEN` at start (rotation =
+  restart; unconfigured bots are not delivered). New law: a manifest with
+  `panelApi` or `bot` must NOT declare `network: ["none"]` (refused) — a
+  kernel-isolated netns has no route to the panel or the bot APIs.
+- Examples: `docs/examples/plugins/panel-reader/` (Go, GET
+  inbounds/list with the granted token, logs HTTP status).
+- Tests: `panelapi_test.go` (grammar, netns conflict, match/grant/load
+  roundtrip, matrix incl. never-reachable), controller
+  `api_plugin_auth_test.go` (production auth path: granted read 200,
+  never-reachable 403, ungranted 403, bad token 401), linux
+  `TestStartDeliversPanelEnv` (env delivery + token echo matches grant).
+- LIVE stand verification (2026-11-02, dev build): panel-reader (Go example,
+  panelApi `inbounds:read` + `bot: telegram`) started as a unit, called the
+  panel API with the granted token `inbounds/list -> HTTP 200`; the same
+  token by hand: `GET /server/status` 403, `GET /plugins/list` 403,
+  `POST /server/updatePanel` 403, `GET /inbounds/list` 200 — the matrix and
+  the never-reachable list enforced exactly; stop/delete left no units.
+
+## lucx.338 — stage 3b: events over unix socket (AllIsA1 contract, bus-native delivery)
+
+- Manifest `events` list (≤16, vocabulary-only: `outbound.down`/`up`,
+  `xray.crash`, `node.down`/`up`, `cpu.high`, `memory.high`, `login.attempt`;
+  unknown/duplicates refused at install). Declaring events makes the panel
+  provide `LUCX_PLUGIN_SOCKET`: `/run/x-ui-plug-<id>/<id>.sock` under the
+  unit runner (systemd `RuntimeDirectory=x-ui-plug-<id>`,
+  `RuntimeDirectoryMode=0700`), `<plugdir>/plugin.sock` under the child
+  runner; plugin unlinks/binds/chmods 0600 itself.
+- Delivery: one `internal/eventbus` subscriber per plugin — the bus's own
+  per-plugin 64-event queue + serial worker give ordered best-effort
+  delivery for free; envelope `{id, type, source, time, data}` POSTed to
+  `/_lucx/events`, 5 s timeout, no retry, counters `delivered`/`failed`
+  (atomics; bus-side drops visible in panel log). Subscriber re-arms from
+  the next status poll after a panel restart (unit keeps running;
+  `ensureEventSubscriber` is idempotent; events work for both runners).
+- `client.*`/`inbound.*` names deliberately NOT in the vocabulary yet (no
+  publishers), `client.traffic.exhausted` etc. wait for stage 3c publish
+  points.
+- Status payload: `events {delivered, failed, socket}`; frontend card tag
+  `Events subscribed: N` + i18n key `eventsCount` in all 14 locales.
+- Example plugin `docs/examples/plugins/event-logger/`: static-buildable Go
+  reference implementing the socket contract (bind, serve `/_lucx/events`,
+  log payloads) + manifest + README with the payload-shape table.
+- Tests: `events_test.go` — vocabulary validation, per-runner socket paths,
+  envelope POST over a real unix socket (`delivered`), non-2xx and missing
+  socket counted as `failed`, filtered types not counted, bus-level
+  subscribe→deliver→unsubscribe idempotence with a real eventbus.
+  Full `internal/lucx` + frontend suites green.
+- LIVE stand verification (2026-11-02, dev build): event-logger (Go example,
+  static linux amd64, packed as ZIP) started as a unit with
+  `RuntimeDirectory=x-ui-plug-event-logger` (dir 0700, socket 0600 inside);
+  killing the Xray process published `xray.crash` through the eventbus to
+  `/_lucx/events` — plugin logged `EVENT xray.crash data="signal: killed"`
+  and the status bumped `delivered: 1`; after a panel restart the status
+  poll re-armed the subscription (socket path re-registered, counters run
+  their own lifetime), a second kill delivered again; stop/delete removed
+  the unit and the runtime dir with it. Notes: cpu/memory.high samplers are
+  only scheduled when a notifier subscribes to those alarms
+  (`cpuAlarmWanted()`), so on a notifier-less host xray.crash/login.attempt
+  are the observable events; docs reflect that. Convention test
+  (production HTTP wrappers) now skips `docs/examples` (plugin-author
+  sample code, not panel servers).
+
+## lucx.338 — stage 3a: unit runner for enforcement (AllIsA1 prior-art, in-panel integration)
+
+- Second runner mode on Linux: plugins start as **transient systemd units**
+  (`lucx-plugin-<id>` via `systemd-run`), kernel-enforced `PrivateNetwork=yes`
+  for `network: ["none"]` — resolves the verified netns-EPERM under the
+  panel's hardened unit (open question 8 in `docs/plugin-manager.md`,
+  decided), `MemoryMax`+`LimitAS` for `maxMemoryMB`, `CPUQuota` for the new
+  `resources.maxCPUPercent` (1..100), empty `CapabilityBoundingSet`,
+  `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `PrivateDevices`,
+  `RestrictNamespaces`, `NoNewPrivileges`, `KillSignal=SIGINT`+
+  `TimeoutStopSec=3` (Stop law), logs via `StandardOutput/StandardError=
+  append:` to the same `plugin.log`, `WorkingDirectory`=plugin dir. Units
+  run as the panel's user (no DynamicUser yet — data-path contract
+  unchanged); honest "unit (partial)" disclosure: namespaces/mounts/limits
+  enforced, filesystem readable.
+- Fallback: unit runner unavailable → child process runner (Stage 1-2 path,
+  unchanged, still fail-closed on netns EPERM; CPU-only manifests refused —
+  `prepareCmd` refuses on Linux and non-Linux). Enforcement manifests never
+  start silently unsandboxed. Unit state supervised by `systemctl show`
+  (ActiveState/MainPID/Result); units survive a panel restart, stop/restart/
+  delete go through the panel first.
+- Status payload: `runner` ("unit"|"process"), `enforcement.cpuLimitPercent`,
+  `enforcement.cpuEnforced`; outlived-panel case detected on `Get` by unit
+  name. Validation: `maxCPUPercent` 1..100; `needsEnforcement` includes CPU.
+- Frontend card: runner tag (unit/process) + CPU cap tag (orange when not
+  enforced); 3 new i18n keys (`cpuLimit`, `runnerUnit`, `runnerProcess`) in
+  all 14 locales. Stage 2 card test extended (unit runner fixture asserts
+  both new tags).
+- Tests: `runner_test.go` — unit property table (`-p` pairs exact incl. Stop
+  law), parse of `systemctl show` output (active/failed/pid), failed-start
+  result surfacing without taking supervision, no-unit-runner CPU refusal,
+  validation bounds; fake seams for systemd binaries keep the suite
+  OS-neutral.
+- LIVE stand verification (2026-11-02, dev build): netns plugin started as
+  unit under the hardened panel unit — different `ns/net` inode from the
+  panel, only `lo` inside, `PING-BLOCKED-AS-EXPECTED`; CPUQuota=300ms/MemoryMax
+  =64MB confirmed on the unit; all three plugins `runner: unit`; units
+  survived panel restart (status `running`, same MainPID); stop/delete clean.
+- Runner lessons (each fixed and verified live): (1) systemd ≤252 has no
+  `systemd-run --replace` → pre-clear failed unit with `systemctl
+  reset-failed` (errors ignored); (2) systemd 252 rejects **relative** `-p`
+  paths silently (exit 1, no stderr — found by strace) → all unit props are
+  absolute, cwd-resolved; (3) unit-er execution errors are appended to
+  `plugin.log` (startUnit logs its failure before the fallback).
+- Token note: panels with >1 API token require `-tokenName` for
+  `-getApiToken` (the stand flow now uses `-tokenName cli-fallback`).
+
+## lucx.337 — install plugin by GitHub link (credit: AllIsA1)
+
+- Plugins page second install path: **Install from link**
+  (`https://github.com/<owner>/<repo>`, optionally `/tree/<branch|tag|commit>`,
+  public GitHub only). Two-step UX per the community plugin system by AllIsA1
+  (<https://github.com/AllIsA1/lucx-plugins>): `GET preview` validates the
+  repository `manifest.json` via raw.githubusercontent.com (same apiVersion 1
+  rules; ≤ 1 MiB), the panel shows the manifest + trust warning, install runs
+  on the confirm click: `POST /install/url` downloads the repo archive
+  (≤ 200 MB, 120 s) and unpacks it through the ZIP contract — 0700 layout,
+  `data/` preserved (both install paths now skip `data/` on extraction), no
+  symlink/hardlink entries, manifest must match preview (TOCTOU guard) or the
+  install aborts and cleans up. No GitHub API calls — no token, no rate limit;
+  a bare link re-reads HEAD every time (advise pinned refs).
+- New routes: `POST /panel/api/plugins/install/url/preview`,
+  `POST /panel/api/plugins/install/url`; endpoints.ts + `npm run gen` synced;
+  eight i18n keys in all 14 locales; frontend dialog with manifest preview
+  (Descriptions) and cancel/install footer.
+- Tests: link parsing (hosts/refs/traversal), preview rejection, full flow on a
+  fake GitHub server (httptest seams for raw+archive URLs), sameManifest guard,
+  data preservation, non-file entries refused.
+
+## lucx.336 — fix lucx.335 stale vendored olcRTC core (#183)
+
+- `third_party/sidecars/linux-amd64/olcrtc-linux-amd64.gz` (2026-09-06, sha
+  `3330c8aa`) predated the vkcalls/mtslink providers → lucx.335 amd64 tarballs
+  accepted the inbounds in the panel (saving works) but the shipped core
+  exited `validate config: unsupported provider`. arm64 was always built from
+  the pin and unaffected.
+- Replaced the vendored gz with a build of the pinned Ghostlane olcRTC
+  v0.12.1 (`d15b37ec`) — the pin already contains vkcalls/mtslink; new gz sha
+  `418ea131…`, decompressed binary sha `c92b759e…` (`rg -a` confirms the
+  provider names and the validation path).
+- Release workflow: new `Smoke-test olcRTC providers` step (both platforms)
+  before packaging — runs the shipped core against minimal srv YAML for
+  jitsi/telemost/wbstream/vkcalls/mtslink and fails the build on
+  `unsupported provider`, so a stale vendored core can never silently ship
+  again (the pin build is skipped when the unpacked file exists — that skip
+  masked this once).
+- Update path stays fine: release pin list (`lucx-pins.txt`) regenerates from
+  the actual packed binaries, so `x-ui update` sees the sha mismatch and
+  refreshes the core.
+
+## lucx.336 — plugin manager Stage 2 (safety, fail-closed)
+
+- `internal/lucx/plugin`: manifest Stage 2 — `permissions` validated (only
+  network/panelApi/bot keys; `panelApi`/`bot` must stay empty in apiVersion 1;
+  `network` accepts only `["none"]`), `resources.maxMemoryMB` (16..131072),
+  `health` probe ({http|tcp, target, interval, timeout}; defaults 30 s/5 s;
+  rejected together with network isolation). Start applies enforcement:
+  `network: ["none"]` → child in its own netns, `maxMemoryMB` → RLIMIT_AS
+  (`enforce_linux.go` / `enforce_other.go`); a manifest asking for enforcement
+  on a host without it is refused at start and the refusal shows in the
+  plugin status. Status gains `enforcement` + `health` (pass/fail, detail,
+  timestamp); probes report only, no auto-restart (contract unchanged).
+- Windows install fix: the entrypoint executable-bit check ran on a mode that
+  NTFS cannot express → refused any plugin; now Unix-only.
+- Frontend: plugin card shows isolation/memory/unenforced tags and probe
+  status; `PluginStatus` type extended; six i18n keys added to all 14 locales.
+- Verified: `go test ./internal/lucx/plugin/ -count=1` (incl. netns/rlimit
+  linux tests and the windows-refusal contract test), frontend typecheck,
+  lint, i18n dead-keys, new components test (plugin card Stage 2).
+- Plan/contract: `docs/plugin-manager.md`, `docs/plugin-sidecars.md` updated
+  (Stage 2 sections, prompts, pre-upload checklist).
+
+## lucx.335 — subscription links, WEB proxy selection and CI
+
+- Restore Telegram WEB and Telemt subscription links; add MasterDNS and
+  per-client wgobfs SOCKS exports, and expose both WEB proxy backends.
+- Fix plugin translations and settings navigation, olcRTC provider validation,
+  and the masked Naive subscription port. Document the REALITY self-SNI setup
+  and legacy MTProxy connectivity risk.
+- Drain CSQTT background sync before database replacement. CI on the preceding
+  commit passed, including race, PostgreSQL, frontend and node end-to-end tests.
+
+## Unreleased — CSQTT background database lifecycle
+
+- Drain immediate CSQTT member synchronization before closing or replacing the
+  database pool, preventing background jobs from racing test database teardown.
+- Verified full database and service suites with shuffle, both normally and
+  with the race detector, under Linux WSL. Full Windows service runs hit the
+  unrelated gopsutil/synctest deadlock.
+
+## Unreleased — WEB proxy selection and sidecar subscriptions
+
+- Show the legacy and Zig WEB proxy backends as separate inbound choices while
+  retaining the existing stored protocol and backend settings.
+- Restore the Telemt, MasterDNS and wgobfs SOCKS protocol tabs; add MasterDNS
+  and per-client wgobfs SOCKS links to raw subscriptions.
+- Verified subscription and tunnel Go tests, frontend typecheck, lint, and the
+  inbound form test suite, including the Zig creation payload.
+
+## Unreleased — issue follow-up
+
+- Accept VK Calls and MTS-Link in both olcRTC frontend schemas (#173).
+- Export the public port for Naive hidden on the Masking site (#174).
+- Document the manual REALITY self-SNI topology and legacy MTProxy connectivity
+  risk (#171, #170); automatic gateway changes and reachability checks remain open.
+- Verified `go test ./internal/sub -count=1`, frontend typecheck, lint and the
+  provider schema test.
+
+## Unreleased — Telegram subscription and settings navigation
+
+- Restored Telegram WEB proxy links for legacy and MTProto Zig in raw subscriptions,
+  and included Telemt clients. JSON subscriptions continue to exclude these sidecars.
+- Fixed the plugin card translation keys, grouped Plugin Manager and Masking under
+  Panel Settings, and labeled Telegram WEB links correctly on subscription pages.
+- Verified subscription, AWG, LucX and database Go tests; frontend typecheck, lint,
+  build, navigation, sidebar, link-label and translation tests.
+
+## lucx.334 — tag v3.11.0-lucx.334, sidebar fix + full CI recovery (2026-10-31)
+
+- Released as tag `v3.11.0-lucx.334` from `7ce2626a`. Assets: amd64/arm64
+  tarballs (+sha256) and Windows amd64 zip; docker images rebuilt; notes
+  filled (RU+EN). `releases/latest` points at the tag.
+- Contains the lucx.333-follow-up sidebar fix (Cores tab back in Panel
+  Settings submenu, `/tunnels` out of the top-level menu, palette keywords)
+  plus the CI reds left behind by lucx.333:
+  - dead i18n key `pages.plugins.mvpNote` removed from all 14 locales
+    (i18n-dead-keys red on CI; docs said 13 locales — there are 14 now).
+  - `CsqttMember` added to `migrationModels()` — cross-db SQLite→Postgres
+    migration silently dropped its rows since lucx.333.
+  - `TestNameRegistry` updated to the actual 17-name registry (telemt,
+    mtprotozig landed in lucx.333 without updating the test).
+  - lint: `os.MkdirAll` errcheck, `exec.Command`→`CommandContext`, gofumpt
+    blanks, goimports local-prefix group split in plugin.go / masque_apple.go
+    (house style: stdlib | externals | `github.com/mhsanaei/3x-ui/v3`).
+  - 16 API routes documented in `endpoints.ts` (plugins, Telemt, MTProto
+    Zig); `npm run gen` re-run; docs spec and generated API reference synced.
+  - npm audit HIGH resolved: `follow-redirects` → 1.16.2
+    (GHSA-mrwp-f3q8-3g9p); remaining 5 are low/moderate via
+    swagger-ui-react and below the audit gate.
+  - `setupConflictDB` cleanup now closes the pool and retries `RemoveAll` of
+    the temp dir (straggler WAL files broke `t.TempDir` cleanup as
+    "directory not empty" on the race job).
+  - Docs CI: `oxfmt` run over plugin docs; API reference regenerated
+    (`pnpm gen:api`).
+- Verified locally: full frontend vitest (216 files / 2173 tests) green,
+  go test + race on database/lucx/service, gofumpt clean, `npm run build`,
+  docs lint/format/tests; CI green on main for every affected workflow.
+- Lesson: CI's push path-filter does not include `internal/web/translation/**`
+  — translation-only commits trigger NO CI run; verify those suites locally
+  before tagging.
+
+## lucx.333 follow-up — sidebar Cores restored (2026-10-31)
+
+- The v3.11.0 sidebar rewrite lost two HOOK decisions: the `/settings#cores` item
+  under Panel Settings (the tunnel-binary management tab was unreachable) and the
+  removal of `/tunnels` from the top-level menu (it should only stay as a deep
+  link from the Cores tab). Restored both in `AppSidebar.tsx`.
+- Added the `/plugins` command-palette keywords lucx.333 forgot (navigation
+  contract test was red) and fixed the stale `cores-binary-download` fixture
+  that crashed `PluginCard`.
+- Verified: typecheck, oxlint, navigation-contract / app-sidebar / cores tests.
+
+## lucx.333 — plugin manager, Apple Relay export, and node-sync fixes (2026-10-31)
+
+- Added the first sidecar Plugin Manager MVP: ZIP manifest validation, architecture checks, isolated plugin data/log paths, process lifecycle controls, REST API, internal panel page, and sidebar entry above Tunnels.
+- Added Apple Network Relay DDM JSON export for MASQUE, with explicit non-`.mobileconfig` scope and MDM/DDM delivery warning.
+- Added Telemt and MTProto Zig sidecar integration, pinned MTProto Zig packaging, Cores management, and release layout checks.
+- Fixed Telegram WEB proxy subscription pollution, node `tproxy` capability advertisement, SSL installer reporting after certificate failure, adopted-node auto-tag retargeting, and Masking host/ID preservation across master/node sync.
+- Added olcRTC VK Calls and MTS-Link providers using `vp8channel`, plus localized operator guidance.
+- Verification: focused Go tests, node-sync tests, frontend generation/typecheck/lint, i18n tests, `go build ./internal/web/...`, `go vet`, `bash -n install.sh`, and `git diff --check` passed. Full Windows packages retain known TempDir cleanup and reserved-port flakes.
+- Release follow-up: build mtproto-zig with a local Zig 0.16.0. The CSQTT toolchain stays on Zig 0.14.1.
+
+## lucx.332 — legacy database recovery (2026-10-29)
+
+- Normalize empty legacy client keepalive values before reading clients, and
+  preserve existing ranges during startup and SQLite backup import.
+- Remove obsolete share-only SQLite triggers before schema migration and use
+  LucX release sources when selecting an older version from the console menu.
+- Verified Windows CGO Go tests for AWG, LucX and database packages; shell syntax
+  checked locally. PostgreSQL and live Linux upgrades remain untested.
+- CI follow-up: fix goimports grouping and staticcheck selectors.
+
+## lucx.331 — audit follow-up and subscription fixes (2026-10-29)
+
+- Stop automatically rewriting issued tunnel credentials during database startup.
+- Preserve existing AWG startup behavior; ownership collision protection remains
+  pending a compatible solution for older unmarked configurations.
+- Stage site uploads and restores before replacing the current site. Reject
+  oversized or unreadable site files instead of silently producing an incomplete
+  SQLite backup; report restore failures to the operator.
+- Serialize sidecar removal and lifecycle operations for the same key, including
+  shutdown snapshots, while allowing unrelated keys to proceed independently.
+- Preserve per-inbound AWG addresses in cached subscriptions (#162). Fix the
+  PostgreSQL text-column keepalive range migration (#161); PostgreSQL runtime
+  validation remains pending.
+- Windows Go package tests, targeted backup tests, race tests for AWG and tunnel,
+  and `go build ./...` passed. Linux runtime and PostgreSQL were not tested.
+- Follow-up: retain both filesystem errors when reporting a failed site rollback.
+
+## lucx.330 - upstream v3.11.0 merge and follow-up fixes (#159, #160) (2026-10-28)
+
+- Merged upstream v3.11.0 (68 upstream commits). The keepalive storage now
+  follows upstream's 3-column schema; the migration preserves legacy values.
+- Kept LucX frontend routes, tunnel/masking pages, client picker, localization,
+  and AWG config-export behavior through the upstream rewrites.
+- AWG client `.conf` generation rejects control characters in values written
+  into config lines; regression tests cover all affected fields.
+- Cover/tproxy ZIP uploads and site listings reject node-assigned inbounds
+  rather than falsely operating on the master's disk (#160).
+- The three systemd units allow `/dev/net/tun` for Xray TUN inbounds. An
+  already-affected host may need the healing drop-in in `.agents/04-current-state.md`.
+- The certificate-path hardening follow-up from the private report is included;
+  report details remain unpublished.
+
+Verification: CI passed, including Go tests, race, node E2E, frontend, codegen,
+golangci-lint, and release builds for amd64, arm64, and Windows amd64. Targeted
+certificate-path and AWG client-config tests passed locally.
+
+## lucx.329 - sidecar certificate-path hardening (2026-10-28)
+
+Operator-supplied cert/key/site paths for anytls, trusttunnel, tproxy and
+cover are hardened (the details of the private report stay sealed until
+GitHub publishes the advisory):
+
+1. Windows-only lexical local-path rule: a drive-letter form only — UNC,
+   device (`\\.\pipe`) and volume paths, NTFS streams and reserved device
+   names are refused, so an `os.Stat` never reaches the network or a pipe
+   server. The shape check is a pure helper (`isWindowsLocalAbs`), testable
+   on any OS.
+2. TOCTOU: type and size are re-checked on the OPENED handle, not on a
+   pre-open `os.Stat`; the Linux open carries O_NONBLOCK so a FIFO cannot
+   hang the panel thread (`certpath_open_linux.go` / `certpath_open_other.go`).
+3. The keypair parses from the already-read bytes (`tls.X509KeyPair`) — no
+   second read racing a file swap. anytls routeThroughXray copies those same
+   validated bytes into the bridge-uid ExtraFiles (no `os.ReadFile` retry).
+4. anytls and trusttunnel instance builders log why they disabled an inbound
+   (validation or certificate reasons) instead of failing silently.
+
+Tests mirror the reporter's naming (TestLocalPath,
+TestReadRegularFileReadsTheValidatedPath, TestOpenCertFileDoesNotBlockOnFIFO,
+TestRejectsNonLocalPathsOnWindows with GOOS=windows, the lexical
+TestIsWindowsLocalAbs anywhere).
+
+Files: `internal/lucx/tunnel/certpath.go`, `certpath_open_linux.go`,
+`certpath_open_other.go`, `trusttunnel.go`, `anytls_inbound.go`,
+`trusttunnel_inbound.go`, certpath test files.
+lucxVersion: lucx.329.
+
+## lucx.328 - masterdns work-dir mkdir fix (2026-10-28)
+
+syncMasterdnsFiles wrote the rendered TOML/secret straight into bin/tunnel —
+on a fresh host the directory does not exist yet, the Instance came back
+disabled and the Linux CI go-test job failed
+(TestMasterdnsInstanceFromInbound). The work dir is now created before the
+writes; the unit test redirects `tunnelDir` into a temp dir instead of the
+real bin path.
+
+Files: `internal/lucx/tunnel/masterdns.go`, `masterdns_test.go`.
+Tests: TestMasterdns* green locally and on CI (run 40685801710).
+lucxVersion: lucx.328.
+
+## lucx.327 - MasterDNSVPN DNS-tunnel sidecar (#127, part 1) (2026-10-28)
+
+New inbound protocol `masterdns` — the MasterDNSVPN Go server
+(masterking32/MasterDnsVPN) as a single-credential sidecar (csqtt pattern:
+one inbound per host, key `masterdns`). The operator supplies a **delegated
+tunnel domain** (its NS record must point at the panel host); the panel
+renders the server TOML (`masterdns-<...>.toml` + hex secret file, both
+0600, rendered at Ensure time) and the client package (client TOML + a
+resolver list — operator-provided or the public 8.8.8.8/1.1.1.1/9.9.9.9
+defaults), plus a `masterdns://v1/` base64url wrapper of the client TOML for
+QR/subscription (upstream client never parses the scheme — it imports the
+TOML; the wrapper is a transport, like the AWG .conf download).
+
+Egress: `PROTOCOL_TYPE=SOCKS5` — routed mode sets `USE_EXTERNAL_SOCKS5` into
+the backend-owned loopback bridge injected by `injectMasterdnsEgress` (tproxy
+pattern; port via `normalizeMasterdnsXrayPort`, collision-safe), direct mode
+lets the core dial destinations itself. Encryption defaults to ChaCha20 (2).
+Rule 0 respected: the shared secret and domains are operator data, minted
+only when empty; the bridge port is backend plumbing.
+
+The core ships on the Cores page (upload/download/delete + status/logs via
+the new `/panel/api/tunnel/masterdns/*` endpoints); `bin/pack-sidecars.sh`
+pins main@5f83ee9 and cross-builds `./cmd/server` (Go std-lib, no CGO).
+Snolc (#137) is blocked upstream — its carrier modules live in the private
+`owenewans/snolc-modules` repo (commented on the issue). Slipstream (the
+other #127 candidate) is skipped: upstream deprecation notice + C-FFI build
+(picoquic/OpenSSL).
+
+Files: `internal/lucx/tunnel/masterdns.go`, `masterdns_inbound.go`,
+`masterdns_test.go`, manager.go, tunnel.go, gateway_apply.go,
+`internal/database/model/model.go`,
+`internal/web/runtime/local.go`, `internal/web/service/tunnel.go`,
+`inbound_lucx.go`, `xray.go`, `client_inbound_apply.go`, `lucx_online.go`,
+`internal/web/controller/tunnel.go`, `internal/web/web.go`,
+`internal/sub/service.go`, `json_service.go`,
+`internal/lucx/nodetype` (untouched — host-only like csqtt),
+frontend: protocol primitive, inbound schema/index, form, defaults,
+inbound-link, `masterdns-link.ts`, link-label, capabilities, list helpers,
+RowActions, client modals, CoresTab, api/tunnels, queryKeys, api-docs
+endpoints, 5 form keys + toast group ×13 locales.
+Tests: `TestMasterdnsValidate`, `TestMasterdnsRenderServerConf`,
+`TestMasterdnsClientTOMLAgreesWithServer`, `TestMasterdnsInstanceFromInbound`,
+name-registry counts 14→15; vitest masterdns-link (3 passed), i18n key parity,
+frontend typecheck + lint; `go build ./...`, cross-build of the upstream core.
+
+## lucx.326 - OpenFlux core to v0.13.0 + new shareable carriers (#148) (2026-10-28)
+
+Catch-up of `p1neappleXpress/OpenFlux` from ba31d0fc (103 commits behind) to
+the v0.13.0 tag (`4f9c786`). Verified before the bump: the `.conf` contract
+(Role/Mode/Codec/EncryptionKeyFile/CookieStore/URL, `[Transport]` Type/
+Priority/URL/Listen) is unchanged — v0.13.0 reads every field the panel
+renders (only Bonding was removed upstream; the panel never emitted it), and
+the `openflux://v1` envelope struct is byte-identical. `go build` linux/amd64
+smoke-built locally.
+
+New shareable carriers wired end-to-end: vyandex (Yandex volga doc),
+boards (whiteboard), telemost (conference), avito (room list). Backed by the
+same link shapes the upstream exit-node wizard validates (provision/
+transports.go regexes, mirrored). In the panel's direct-first priority scheme
+they slot as vyandex 52 > yandex 50 > mailru 40 > telemost 35 > boards 32 >
+avito 31 > cupsonline 30 — the three original carriers keep byte-stable
+priorities (Rule 0: no issued link changes flavor unless the operator fills
+a new field). Form, Zod schema, defaults, link generator, and 5 i18n keys in
+all 13 locales updated; bitrix24/oneme stay unexposed (not in upstream's
+shareable knownTypes).
+
+Files: `internal/lucx/tunnel/openflux.go`, `openflux_test.go`,
+`frontend/src/lib/xray/openflux-link.ts`, `frontend/src/test/openflux-link.test.ts`,
+`frontend/src/lib/xray/inbound-link.ts`, `inbound-defaults.ts`,
+`frontend/src/schemas/protocols/inbound/openflux.ts`,
+`frontend/src/pages/inbounds/form/protocols/openflux.tsx`,
+`internal/web/translation/*.json`, `bin/pack-sidecars.sh`.
+Tests: `TestOpenfluxNewCarriersConfAndLink`,
+`TestOpenfluxNewCarriersRejectedShapes`, openflux-link vitest (5 passed),
+i18n key-set parity, frontend typecheck + lint, `go test ./internal/lucx/
+tunnel/ ./internal/sub/`. Stand test of a live exit with a real carrier
+before the release tag.
+
+## lucx.325 - olcRTC core source moved to the ghostlane fork (#157) (2026-10-28)
+
+`bin/pack-sidecars.sh` pinned `openlibrecommunity/olcrtc@54bd269`, archived and
+frozen. Release core is now `ghostlane-project/olcrtc v0.12.1` (`d15b37ec`,
+the maintained Fork). Verified before the bump: the fork is 364 commits ahead
+but wire-compatible with the pinned engine — 54bd269 already speaks OLC2
+records and OLVC5 frames, and v0.11/v0.12 releases state "nothing a peer sees
+changed"; the srv YAML schema still accepts every field the panel's
+`RenderYAML` emits (strict loader satisfied, field-for-field checked against
+`docs/examples/server/server.jitsi.videochannel.yaml`), and
+`socks.proxy_addr/proxy_port/proxy_user/proxy_pass` keep the same meaning.
+`./cmd/olcrtc` builds with `GOTOOLCHAIN=auto` (go 1.26.3), smoke-built
+linux/amd64 locally. Client URIs and configs untouched (Rule 0: no client-side
+change). Existing live inbounds must be re-tested against the new core on the
+stand before the release tag.
+
+Files: `bin/pack-sidecars.sh`.
+Tests: cross-compile smoke build (this repo has no olcrtc unit surface;
+`internal/lucx/tunnel` olcrtc tests unaffected).
+
+## lucx.324 - `$name` macro for sidecar URIs + safe renaming guard (#136) (2026-10-28)
+
+CSQTT/QWDTT/olcRTC sub lines showed raw meet URLs or protocol names because
+their URIs cannot carry a display name: olcRTC's `#fragment` is the crypto
+key, CSQTT/qWDTT/OpenFlux bodies are the core's encrypted config. Two fixes:
+
+1. `$name` macro: a stored link may contain `$name`; at export it renders as
+   the display name (external-link remark, else own fragment) or, on inbound
+   lines (olcrtc/qwdtt/csqtt/openflux), as the inbound remark. Spaces become
+   %20; an empty name keeps `$name` literal. For olcRTC the operator appends
+   `$name` to the free-form meet URL.
+2. Rename guard: `applyRemarkToLink` no longer rewrites `#fragment` of
+   schemes whose payload is mandatory/encrypted (olcrtc, csqtt, qwdtt, wdtt,
+   openflux, tproxy) — setting a remark used to corrupt the link.
+
+Files: `internal/sub/external_config.go`, `internal/sub/service.go`,
+`internal/sub/external_config_test.go`.
+Tests: `TestExpandEntryAppliesNameMacro`,
+`TestExpandEntrySidecarRemarkNeverRewritesLink`, `TestSidecarSubNameMacro`,
+existing remark/expand suites.
+
+## lucx.323 - accept any scheme for client external links (#145) (2026-10-28)
+
+`normalizeExternalLinks` validated a "link" row through `link.ParseLink`, so
+operator-pasted URIs of protocols the panel cannot parse (openflux, snolc,
+...) were rejected with "unsupported or invalid share link" — the exact case
+of #145. Validation is now `isShareURI` (`scheme:` + a non-blank payload,
+RFC 3986 scheme chars); unknown schemes pass. Downstream degrades safely:
+unknown links render as-is in the sub and are skipped by Clash/JSON outbound
+builders (`parsedExternalOutbound` returns nil). Subscriptions stay strict
+http(s); garbage without a scheme is still a hard error.
+
+Files: `internal/web/service/client_external_link.go`,
+`internal/web/service/client_external_link_scheme_test.go`.
+Tests: `TestNormalizeExternalLinksAcceptsUnknownSchemes`,
+`TestNormalizeExternalLinksStillRejectsGarbage`.
+
+## lucx.322 - rebrand kernel AWG labels to "AmneziaWG (LucX)" (2026-10-28)
+
+Upstream starts supporting kernel AmneziaWG, so our kernel-sidecar inbound
+would collide with upstream's naming. Every user-visible
+"AmneziaWG (kernel)" label (incl. ru "AmneziaWG (ядро)") is now
+"AmneziaWG (LucX)": 4 i18n keys ×13 locales (awgStatus, protocolNames.awg,
+awgTitle, sectionTitle) and the share-link tag label/color key in
+`frontend/src/lib/xray/link-label.tsx`. Technical hints that legitimately
+say "kernel module / kernel state" are untouched. No keys renamed — the
+i18n dead-key set test stays green; client configs are not affected.
+
+Files: `internal/web/translation/*.json` (13),
+`frontend/src/lib/xray/link-label.tsx`, `internal/config/config.go`.
+
+## lucx.321 - dashboard shows every public IP bound to host interfaces (2026-10-28)
+
+Community patch adapted (lucx-ui-multi-ip). External lookup services return
+only the egress address, so a VPS with several public IPs on one interface
+showed just one. `GetStatus` now also fills `publicIP.extra`:
+`interfacePublicIPs()` lists global-unicast addresses on up interfaces,
+skipping loopback/link-local, RFC1918/ULA, CGNAT 100.64.0.0/10 and the IPs
+already found by the lookup. Filtering extracted into the testable
+`publicIPString()`; CGNAT checked by byte range (no IPNet mask). Frontend
+renders each extra IP on its own line under ipv4/ipv6, same eye toggle and
+`ov-ip-v6` styling; `PublicIPSchema`/model accept `null`.
+
+Files: `internal/web/service/server.go`,
+`internal/web/service/public_ip_interfaces_test.go`,
+`frontend/src/models/status.ts`, `frontend/src/schemas/status.ts`,
+`frontend/src/pages/index/SystemStrip.tsx`,
+`frontend/src/pages/api-docs/websocket-events.ts`.
+Tests: `TestPublicIPString`, `TestPublicIPStringCgnatBoundaries` (`go test
+./internal/web/service/`), frontend typecheck + lint.
+
+## lucx.320 - tproxy/cover zip site upload and reconcile broken by relative default bin folder (2026-10-27)
+
+Regression from lucx.318: `rejectLocalPath` in `RequireIndexHTML` requires an
+absolute path, but the stock `XUI_BIN_FOLDER` fallback is the relative `bin`
+(install.sh resolves it against the unit's WorkingDirectory). On servers
+without an absolute env var every LucX-managed site dir
+(`bin/tunnel/tproxy-N-site`) was refused — zip upload failed with
+"tproxy: zip needs index.html" and reconcile logged "site directory must be
+an absolute path without ..", disabling tproxy-85 and cover inbounds.
+
+Fix: managed dirs are absolutized at the source — `absWorkDir()` resolves
+`workDir()` against the process cwd, `TproxySiteDir`/`CoverSiteDir` use it.
+Operator-supplied `siteDir`/`certFile` stay strictly absolute (lucx.318
+intent unchanged).
+
+Files: `internal/lucx/tunnel/tunnel.go`, `tproxy_inbound.go`,
+`cover_inbound.go`, `tproxy_test.go` (regression test with the relative
+`XUI_BIN_FOLDER=bin` fallback).
+
+## lucx.319 - Minecraft preset + Keenetic wrapper repairs (2026-10-27)
+
+Minecraft Bedrock preset follows generatorM (balanced): RakNet I2 is an
+MTU-1280 probe, I3 stores the server IPv4 bitwise-NOT and the same client
+GUID as I1, I4/I5 are frame-sets, v2 headers are 5/6/28/128-141 (H2 is the
+server OCR1 Reply, not the client's OCR2). v3 timings are the published
+balanced ranges. RandomTrailers stays off (current GUI clients drop it);
+S1-S4 stay equal so turning that switch on does not break type detection.
+Existing inbounds are not rewritten — only a new generate.
+
+Keenetic: the release tarball's Linux `x-ui.sh` was copied over the Entware
+wrapper, so `/opt/bin/x-ui`, `S99x-ui` and `/opt/etc/x-ui/x-ui.sh` were the
+systemd script (`#!/bin/bash`, missing on the router). Unpack now drops that
+script and the unit files, then installs the wrapper. `stop`/`uninstall`
+kill every process still mapped from `/opt/etc/x-ui`, including `(deleted)`
+leftovers in RAM (busybox `killall` does not take a path, and Entware has no
+`pkill`). Dashboard disk on Entware reads the OPKG volume (NDMS RCI, else
+`/opt`), not the firmware overlay at `/`.
+
+Files: `internal/awg/cps/session_bedrock.go`, `params.go`, tests,
+`internal/lucx/keenetic/disk.go`, `internal/web/service/server.go`,
+`bin/lucx-keenetic.sh`, install-keenetic docs, `internal/config/config.go`.
+Tests: `go test ./internal/awg/cps/ ./internal/lucx/keenetic/`.
+
+## lucx.318 - node host check for sidecar certs (#158) (2026-10-27)
+
+Master no longer opens cert, key, or site paths for a node-assigned tproxy,
+cover, anytls, or trusttunnel inbound. It asks the node via
+`POST /panel/api/tunnel/hostCheck` (node-sync allowlist). Refusal blocks the
+save with the node name. Old node, offline, or timeout: save proceeds with a
+log warning, not a check against the master's files. Master pushes
+(`FromNodeSync`) skip cert/site reads; TrustTunnel port conflicts skip node
+inbounds on the master. Explicit cert and site paths must be absolute, with
+no `..` or control characters, and cert reads are capped at 1 MiB regular
+files. Tag `v3.10.2-lucx.318` also carries untagged lucx.317 (Keenetic start
+without nohup). lucxVersion: lucx.318.
+
+Files: `internal/lucx/tunnel/certpath.go`, `trusttunnel.go`, `tproxy_site.go`,
+`internal/web/service/inbound_lucx.go`, `internal/web/controller/tunnel.go`,
+`api.go`, `runtime/remote.go`, `node_contract_test.go`, `endpoints.ts`,
+`frontend/public/openapi.json`, `internal/config/config.go`.
+Tests: `go test ./internal/lucx/tunnel/`, host-check service tests,
+`TestMasterNodeContract`, `TestRouteRegistryContract`. Follow-up: contract
+cell returns the node error as-is so errorlint stays quiet.
+
+## lucx.317 - Keenetic wrapper: foreground bash job instead of nohup (2026-10-25)
+
+First real Keenetic run (tester Igor, arm64): deps + tarball + checksum +
+settings all OK, then `nohup: command not found` in `start()` — Entware /
+KeeneticOS busybox has no `nohup`, so the panel never started. The
+x-ui-keenetic original never used nohup: it backgrounds with plain `&` +
+`disown`. Replaced `nohup nice -n -19 ... &` with
+`... run >> log 2>&1 & disown` (no external deps; `nice` dropped —
+scheduling priority buys nothing here). No tag: the wrapper is fetched from
+raw main; panel tarballs unchanged (stable stays v3.10.2-lucx.316).
+lucxVersion: lucx.317
+
+## 2026-10-25 - security reporting channel for the fork
+
+Private vulnerability reporting enabled on `AlexeyLCP/lucx-ui` (Security tab).
+`SECURITY.md` rewritten: LucX-specific code (`internal/awg/`, `internal/lucx/`,
+LUCX-HOOK blocks, LucX `bin/` scripts) → private channel on this repo;
+vanilla 3x-ui code → upstream policy (ho3ein.sanaei@gmail.com). Prompted by a
+reporter outside the repo who found the fork's SECURITY.md pointed only at the
+upstream contact. Ships with lucx.319 (was local-only).
+
+New rule (push + release gates for private reports): `.agents/06-workflow.md`
+step 11.5 + release step 0b + `bin/pre-push` hook now also check repo private
+advisories via `gh api repos/AlexeyLCP/lucx-ui/security-advisories` (non-
+`published` state). Push: warn only (the advisory fix must be pushable); tag:
+hard gate — release ships only with the fix or reporter-approved postponement.
+Hook copied to `.git/hooks/pre-push` on the dev machine. Reporter (XaksFlaX)
+also opened public issue #158 (node inbounds validated against master host).
+
+## lucx.316 - Keenetic (Entware) install target (2026-10-25)
+
+Adapted own-open-source/x-ui-keenetic (GPL-3.0 Entware wrapper for upstream
+3x-ui) into `bin/lucx-keenetic.sh` + a docs page
+(`docs/content/docs/en/guide/install-keenetic.mdx`, linked from the
+installation guide; sidebar `meta.json` updated). The wrapper installs the
+GitHub arm64 tarball (`/opt/etc/x-ui`, SQLite, geodata, Entware
+`init.d/S99xui` autostart, port/path/admin prompts) and **never** runs
+`bin/install-awg-module.sh` — Keenetic firmware is closed (no headers/DKMS),
+so the amneziawg kernel module cannot be built there at all.
+
+Runtime notes gathered while scoping:
+- LucX releases ship amd64/arm64 only → mips/armv7 Keenetics are
+  explicitly rejected by the arch check.
+- No kernel module needed: `KernelAvailable() == false` makes awg inbounds
+  run on the embedded userspace `amneziawgnet` stack (gVisor + SOCKS).
+- Phobos/wgobfs needs a **standard** kernel `wireguard` netdev (separate
+  from amneziawg; KeeneticOS 4.1+ ships it as the firmware "WireGuard VPN"
+  feature) plus userspace tools — the wrapper installs Entware
+  `ip-full` + `wireguard-tools`. `wgosocks` inbounds are pure userspace.
+- NOT verified on real hardware yet (no aarch64 router available); marked
+  experimental. Phobos's own client install-links already support Keenetic
+  as a client platform, so router-as-client needs nothing from LucX.
+- `bin/lucx-keenetic.sh` is GPL-3.0 (derived), noted in `docs/LICENSING.md`.
+
+lucxVersion: lucx.316
+
+## lucx.315 — routed Mieru/TrustTunnel bridge accepts SOCKS5 UDP ASSOCIATE (2026-10-25)
+
+Field report (mita, tested on lucx.312 by patching the compiled binary): with
+routeThroughXray on, TCP worked through the hidden loopback SOCKS bridge but
+UDP (calls, QUIC/HTTP3, UDP DNS) was silently dropped — Mieru and TrustTunnel
+carry UDP, while their bridge inbound was rendered with `{"auth":"noauth",
+"udp":false}` (mita 3.39+ forwards SOCKS5 UDP ASSOCIATE into the egress
+outbound; the bridge was the only blocker).
+
+- `internal/web/service/xray.go`: new const `udpEgressSocksSettings`
+  (`{"auth":"noauth","udp":true}`); `injectSocksEgress(..., udp bool)` picks it
+  when enabled. UDP on **only** for Mieru + TrustTunnel bridges; MTProxy/
+  tproxy/Naive/olcRTC/AnyTLS bridges stay `udp:false` (reporter's suggestion —
+  the shared noauth constant would otherwise have flipped six protocols at
+  once). Bridge stays on 127.0.0.1 — Xray's UDP relay opens nowhere.
+- `internal/lucx/tunnel/mieru.go`: the outdated "SOCKS also loses UDP
+  associate" comment replaced with the actual state.
+- Tests: `TestInjectSocksEgress_UDPOnlyWhereTransportCarriesIt` (each sidecar
+  protocol through its own inject fn, asserts the udp line), sniffing test
+  extended with the udp assertion.
+- Separate report, NOT this fix: routed AnyTLS on the reporter's host showed a
+  0-packet uid REDIRECT while clients kept working — the anytls child runs as
+  root (fallback chain, reason logged once in the journal: cert-copy/chown
+  failure or a pre-CAP_CHOWN unit). Awaiting the reporter's journal/ps output
+  before changing anything.
+
+## lucx.314 — vanilla kernel-WireGuard runs on wg-less hosts (`awg` fallback), reconcile flood silenced (2026-10-25)
+
+Second tester E2E (Igor, same day as lucx.312): the panel sprayed
+`kernel WireGuard reconcile: kernel WireGuard inbound 14: wg operation failed
+(exit -1): exec: "wg": executable file not found in $PATH` every 10 s, and the
+PhobosWG app on the router never connected through the wgobfs preset on that
+inbound — the WG netdev was never created, so the engine forwarded decoded
+packets to a loopback port nobody listened on.
+
+- **Root cause:** the vanilla kernel-WireGuard manager hardcoded `wg`
+  (wireguard-tools); LucX provisions only amneziawg-tools (`awg`/`awg-quick`).
+  The two binaries are NOT interchangeable per-device: awg resolves the genl
+  family `amneziawg` (amneziawg-tools `src/uapi/linux/linux/wireguard.h`:
+  `#define WG_GENL_NAME "amneziawg"`), a vanilla kernel netdev speaks the `WG`
+  family — each binary only manages its own interface type.
+- **Fix (`internal/lucx/wireguard/manager.go`):** `wgTools()` resolves once
+  per process — `wg` → iface type `wireguard`, else `awg` → type
+  `amneziawg`, else one clear error ("install wireguard-tools or
+  amneziawg-tools"). All five call sites (setconf/syncconf, show dump, peers
+  list, fwmark set, peer remove) and `ip link add` use the resolved pair.
+  `owned()` accepts both kinds; a live device carrying the other kind is
+  deleted and rebuilt instead of reconfigured by the wrong binary; the
+  resolved kind rides the device fingerprint, so a resolution change triggers
+  a clean rebuild; the orphan scan walks both types.
+- **Flood:** `internal/web/job/kernel_wireguard_job.go` warns each distinct
+  reconcile error once per process (dedupe by message; cleared on a clean
+  tick, so a recurring error re-warns after a fix-and-regress).
+- **Tests:** `TestManagerAwgToolsFallback` (awg setconf + `type
+  amneziawg`), `TestManagerKindSwitchRebuildsInterface`,
+  `TestKernelWireguardJobDedupesRepeatingReconcileError`. `go vet`, awg/lucx
+  suites green. Note: amneziawg `awg show dump` carries a long extra column
+  set on the device line but the peer line stays 8 columns — `ParseDump`
+  stays compatible as-is.
+
+## lucx.313 — openflux subscriptions + backups carry the masking sites (2026-10-25)
+
+Tester report (chat): external subscriptions pulled qwdtt/csqtt/olcrtc links
+but not the openflux ones. Two gaps:
+
+- `getInboundsBySubId` (`internal/sub/service.go`) protocol whitelist had no
+  `openflux`, so an openflux inbound never reached any subscription. Added —
+  the whitelist now also carries a LUCX-HOOK marker so the next upstream merge
+  cannot silently lose it.
+- `link.ParseLink` had no `openflux://` case, so a fetched openflux link was
+  "unsupported" and got dropped from the JSON subscription (`GetJson` skips
+  unparseable externals). Added as an opaque link like qwdtt/olcrtc (raw
+  payload, client parses it). Clash still cannot represent the tunnel family
+  — unchanged, gated by design.
+
+Second tester report: restoring a panel backup did not restore the uploaded
+cover sites nor the tproxy (Telegram web proxy) sites. `GetDb` is a bare
+SQLite file; the sites live only in `bin/tunnel/*-site`. New behavior
+(`internal/web/service/backup_site_files.go`, call sites in `backupSQLite` +
+`ImportDB` under LUCX-HOOK):
+
+- On SQLite backup the site files of every cover/tproxy inbound are embedded
+  into the backup copy in table `lucx_backup_site_files` (dir base name,
+  relative path, blob). Caps: 20 MB per file (zip-upload parity), 64 MB total,
+  symlinks skipped, missing dirs skipped. Embed failure keeps a DB-only
+  backup (logged) — a backup must always happen.
+- On import the table's files are written back: only dirs whose inbound the
+  restored DB actually carries (cover/tproxy match), path validation before
+  the wipe (`..`, leading `/`, backslash rejected — `Clean("/../x") == "/x"`
+  hides traversal), table dropped from the live DB on success. A pre-feature
+  backup (no table) restores unchanged. PostgreSQL paths untouched — the
+  table never exists in a live DB and MigrateData copies only known models.
+
+Tests: `internal/util/link` (openflux opaque parse), `internal/web/service`
+(backup_site_files_test.go — embed count/data/nested paths, restore incl.
+foreign-dir and traversal rejection, no-table restore). `go build ./...`,
+`go vet` on the three touched packages, `internal/sub` + `internal/util/link`
++ `internal/web/service` all green on `-count=1`. Windows note: the suite has
+a pre-existing flake class — `testing.go:1619 TempDir RemoveAll cleanup:
+unlinkat ... The directory is not empty` races on random tests, plus
+salamander "warns once" counter tests fail under `go test -count=2`; both
+reproduce on the stashed baseline and are unrelated to this change.
+
+## lucx.312 — wgobfs "Add preset" is one click: auto-filled preset, tuning fields collapsed (2026-10-25)
+
+Tester E2E (Igor) hit "no connect" with a `phobos://` export pasted into AWG
+Manager (Keenetic) while the server engine ran clean. Two outcomes:
+
+- **Interop verdict (on record for future reports):** the export format is
+  correct. AWG Manager's phobos:// import (`internal/obfuscator/instance.go` /
+  `conf.go` upstream) understands everything our client `[instance]` writes
+  (`target/key/masking/max-dummy/idle-timeout`; it ignores `media-ssrc`, and
+  `source-if/source-lport/verbose` are self-managed there). MEDIA with empty
+  `media-ssrc` is valid: Phobos `masking_media.c` uses a random per-connection
+  SSRC that is self-describing in the packet header, so client and server need
+  no agreed value. The usual real causes of "engine up, no handshake, silent
+  logs": (1) the server firewall does not pass the preset's public UDP port —
+  the panel never opens preset ports automatically (only the optional
+  `blockDirectPort` DROP); (2) the router relay is down ("обфускатор не
+  запущен" on their Обфускатор tab — its binary downloads from a mirror on
+  first start), and ClusterM-kind relays cannot do MEDIA at all, so the link
+  must be imported through their Phobos tab; (3) `Endpoint=127.0.0.1:...` in
+  the conf is by design — the WG client on the router dials its local relay.
+- **UX change (this release):** `nextPreset`
+  (`frontend/src/lib/wgo/preset.ts`, mirrors the Phobos panel "Add preset"):
+  the button auto-fills name `phobos-<port>`, the next free UDP port (Phobos
+  window 51822+, skipping other presets' ports and the inbound's WG port; a
+  port taken by another inbound is still caught by backend validation on
+  save), a fresh XOR key, and a unique client loopback port (13255+). Tuning
+  fields (media Ssrc/Pt/Clock for MEDIA, maxDummy, idleTimeout,
+  clientWgLocalPort) moved into a collapsed "Дополнительно"/Advanced block in
+  `wgo-obfuscation.tsx`; visible stays: name, public port, key, masking,
+  default-switch. New i18n key `pages.inbounds.form.wgoAdvanced` ×13 locales
+  (en+ru translated, byte-stable insert after `wgoAddPreset`).
+
+Tests: `frontend/src/test/wgo-preset.test.ts` (4 — first preset base
+ports + isDefault, port skipping incl. the WG port, local-port uniqueness).
+`typecheck` / `lint` / vitest unit / `build` green.
+
+## lucx.311 — WireGuard obfuscators: wgobfs engine (Phobos fork of ClusterM wg-obfuscator) — kernel-WG presets + wgosocks SOCKS5-exit inbound (2026-10-25)
+
+Users kept asking for "wg-obfuscator (Phobos)" and "wg-obfuscator (ClusterM)".
+Research result: **one engine, not two** — Ground-Zerro/Phobos is a wg-easy-fork
+panel (AGPL, not used) that VENDORS the ClusterM wg-obfuscator core in
+`src/phobos-obfuscator/` (GPL-3.0 C) and extends it (`mode=socks5`,
+`role=relay|client|server`, masking `MEDIA` (RTP framing) and `TLS`
+(socks5-only), `socks5-users` RFC 1929 multi-user auth, the preset model and
+the `phobos://` client link format). LucX ships that fork core as ONE binary
+`wgobfs-linux-{amd64,arm64}` (pin `22aedefd`, reactive bump policy) — the
+qWDTT/MTProxy GPL-external-process precedent. No Phobos panel code is copied;
+preset rendering and `phobos://` are re-implemented from the public docs.
+Design: `docs/superpowers/specs/2026-10-24-wg-obfuscator-design.md`, plan:
+`docs/superpowers/plans/2026-10-24-wg-obfuscator.md`.
+
+Two surfaces:
+
+- **Kernel-WG obfuscation presets** (maintainer decision: a section ON the
+  kernel WireGuard inbound, not a separate entity): optional
+  `settings.obfuscation` (overlay-safe — absent on vanilla DBs → hidden).
+  One engine process `wgo-{id}` per inbound, INI section per preset
+  (`mode=wireguard`, `source-lport=<extPort>`, `target=127.0.0.1:<wgPort>`,
+  `key`, masking STUN/MEDIA/AUTO/NONE, media params, dummy/idle). Lifecycle:
+  `kernel_wireguard_job` (`ObfuscationTargets` → `ReconcileWgo`) +
+  `applyLocalKernelWireguard` (immediate on save). `blockDirectPort`
+  (default OFF — Rule 0: existing plain clients keep working) adds an
+  owner-marked iptables DROP (`lucx-wgo-<id>`) on the direct WG port;
+  swept when the inbound disappears. UDP preset ports validated against the
+  panel's port registry (tproxy/panel/inbound conflicts).
+- **`wgosocks` inbound** (SOCKS5-exit, anytls shape, both features in one
+  release per maintainer decision): `mode=socks5 role=server`, TCP listen =
+  `inbound.Port`, panel clients minted login/password (plaintext in the 0600
+  engine conf — the engine needs plain pairs), `socks5-users` rendered from
+  enabled clients. Reconcile in `TunnelService.reconcileWgosocksInbounds`,
+  traffic `/proc/PID/io` + sole-client attribution (tproxy lucx.190 pattern;
+  engine cannot split per-user), not in JSON/Clash subs, local/master only.
+
+Client exports (`frontend/src/lib/wgo/link.ts`, goldens mirror the Go
+renderers in `internal/lucx/tunnel/wgo.go` — byte-identical): `.conf` with
+loopback Endpoint + `[instance]` (Phobos format), `phobos://<base64url>#name`
+QR/link panels per preset in ClientQrModal, standalone ClusterM INI download
+for NONE/STUN presets (upstream client builds), wgosocks `phobos://` with the
+separate `[socks5]` credentials section. Helper warning everywhere: a plain
+WG app cannot use the obfuscated conf without the local obfuscator
+(Phobos client installers / PhobosWG Android / upstream ClusterM builds for
+NONE-STUN). **Deviation from spec §3.2:** per-client preset binding is
+export-time only in v1 (default preset; no persisted `presetId` on the peer)
+— follow-up if testers need per-client isolation.
+
+Surface details: model oneof `wgosocks`; Cores card "WG obfuscator (wgobfs)"
+(`/panel/api/tunnel/wgo/*` upload/download/delete/status/logs — SourceCraft
+delivery); per-inbound `/panel/api/inbounds/:id/wgoStatus|wgoLogs` (form
+status line via `useAwgInboundId` context); InboundOption hints
+`wgObfuscation`/`wgosocksConfig` (awgObfuscation precedent, OpenAPI
+regenerated); i18n +53 keys ×13 locales (en+ru translated, byte-stable
+insert); `api-docs/endpoints.ts` registry.
+
+Build: `release.yml` new step "Build wgobfs (Phobos fork)" — `make STATIC=1`
+with `zig cc -target {x86_64,aarch64}-linux-musl` (zig already set up for
+CSQTT); `pack-sidecars.sh` got the same block for local packing (host cc /
+`WGOBFS_CC`); pins list += `wgobfs`. Docs: operator guide
+`docs/content/docs/en/config/wg-obfuscator.mdx`, `docs/LICENSING.md` (GPL
+external binary + AGPL-not-used note), README credits (ClusterM +
+Ground-Zerro), `.agents/02-architecture.md` engine entry, `08-hooks.md`,
+Rule 10 file list.
+
+Tests: Go — `tunnel/wgo_test.go` + `wgo_inbound_test.go` (golden confs,
+validation incl. reserved/TLS-in-WG/caps), `wireguard/obfuscator_test.go` +
+linux firewall args/sweep, job fakes for `ReconcileWgo`/firewall sync,
+`kernel_wgosocks_test.go` (normalize: mint once, never rotate — Rule 0).
+Frontend — `wgo-link.test.ts` (goldens mirror Go), kernel-wireguard schema
+tests (vanilla passthrough, preset round-trip, empty-presets reject),
+obfuscated export builders. Gates green: `go test ./internal/lucx/... ./internal/web/{job,service}/...`,
+typecheck/lint/vitest 1593 (one pre-existing ordering flake in
+`TestAddInbound_NodeMtprotoLeavesTheEgressPortToTheNode`, passes isolated
+and on full re-run), gofumpt clean, i18n dead-keys ×13.
+
+**Remaining for testers (not verifiable on the dev box):** live wgobfs run
+(binary builds in CI), Phobos-client interop per masking mode (esp. MEDIA
+framing vs their bundled builds across pin bumps), `MAX_SOCKS5_USERS` actual
+value (panel caps at 512), `verbose`/`idle-timeout` unit forms in real
+`[instance]` parsing (spec §10.1–10.2).
+
+lucxVersion: lucx.311
+
+## lucx.309 — sidecar pin sweep: naive security, TrustTunnel 1.3, caddy 2.11.7 stack (2026-10-24)
+
+Bumped cores (`bin/pack-sidecars.sh` + amd64 gz in `third_party/sidecars/linux-amd64/` + `release.yml`):
+
+- **caddy-naive `v2.11.2-naive` → `v2.11.7-naive2`** (amd64 prebuilt; caddy 2.11.7 + forwardproxy `e747854e`; arm64 xcaddy caveat below). naive2 carries "do not break authenticated stream after read_body_idle" — required under Caddy 2.11.6+'s default 1-minute idle read/write timeouts; -4+ clients also recommend the server update.
+- **naive-client `v154.0.8037.49-2` → `-5`.** Security: blocks compromised eMudhra intermediates; upstream marks all older versions MitM-unsafe ("ALL USERS MUST UPGRADE"). Server and client move as a pair.
+- **caddy-layer4:** caddy `v2.11.4` → `v2.11.7`, caddy-l4 `42db5690` (v0.1.2) → `4ad6aec1`, forwardproxy `d62c80d3` → `e747854e`. l4 post-v0.1.2: UDP session goroutine release on shutdown, hijacked-conn prefetch buffer out of the pool, proxy_protocol policy pass-through, `half_close_timeout`, TLS `handshake_timeout`, FIN after close_notify. l4 main requires caddy 2.11.7 (#476), so the trio moves together. Both xcaddy builds (arm64 caddy-naive, gateway caddy-layer4 on every arch) stay on forwardproxy `c096d6a0` (`v2.11.7-naive`): e747854e calls `caddyhttp.IdleTimeoutsFromContext`, which exists only on caddy main (post-2.11.7 tag), so `xcaddy build v2.11.7` fails on it (caught by the Release run). Revisit when caddy tags a release carrying that symbol. `caddylucx/go.mod` bumped to match (caddy v2.11.7 + caddy-l4 pseudo `4ad6aec1`, go 1.26) — build/vet/test green locally.
+- **mieru + mieru-client `v3.38.0` → `v3.39.0`** (via 3.38.1: QUIC-dialer infinite-retry fix, socks5 auth / private-IP fixes; 3.39.0: opt-in `advancedSettings.tcpIdleTimeout` + outbound memory optimization). Config surface unchanged; our mita JSON untouched. `tcpIdleTimeout` is an exposure candidate for the form.
+- **TrustTunnel `v1.1.0` → `v1.3.0-beta.2`, trusttunnel-client `v1.1.7` → `v1.3.0-rc.2`.** Testers' Throne clients auto-updated to the 1.3 line, so the server follows (operator decision). vpn.toml/rules.toml schema unchanged from v1.1.0 (checked against beta.2 CONFIGURATION.md); client TOML gains are additive (`tls_profile`, `client_random_auth_key`, not exposed yet). For the future: 1.3 `gen_client_config` hard-fails on a `--client-random-prefix` without an allow rule (we never call that CLI); `client_random_auth_key` is an alternative to our `clientRandomPrefix` — exposure candidate when 1.3 goes stable.
+- **tproxy-server `acc252ec` → `c8adb8b7`** (release.yml `TPROXY_SHA`): secret-scan CPU-ddos fix, token-MAC rollback recognition, MTProxy permissions under umask 077 (complements the lucx.204 asset fixes). CLI untouched — changes are internal/server + internal/session only.
+
+amd64 gz regenerated (CI unpacks them before `pack-sidecars.sh` runs, and `install.sh` raw-fetches them on pin mismatch, so they must match the pins): caddy-naive / naive-client / trusttunnel / trusttunnel-client taken from upstream release assets, mieru ×2 built locally with the exact pack-sidecars flags (`CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w"`); all six verified as static ELF x86-64 before gzip -9. SourceCraft Cores are uploaded separately and stay on the old set until the next Cores upload.
+
+Pins intentionally NOT bumped (audited the same session): csqtt `fd936ef0` (v2.5.0 is the latest tag; the two newer master commits are a deleted changelog + domains.txt), olcrtc `54bd269b` (4 newer commits are docs/podman-install only), qwdtt `v1.4.4` == upstream HEAD, MTProxy `f36d8af7` == HEAD, anytls `v0.0.13` == latest, openflux `ba31d0fc` — v0.13.0 (103 commits) rewrites carrier defaults (cups.online 8 rooms, Avito 8 pairs, new RTO/CoDel/pacing) and removes session bonding; carrier behavior on live inbounds needs a deliberate tester pass, so the bump policy is now recorded in `.agents/02-architecture.md` (reactive: bump when a carrier breaks upstream).
+
+Field audit (no code changes needed): every flag/key our renderers emit was checked against the pinned upstream sources — csqtt (all 7 flags alive on 2.5.0), qwdtt (7 flags; admin-API/Telegram-bot flags unexposed, off by default), olcrtc (no deprecated fields emitted — `link`/`ffmpeg`/`video.bitrate`/`video.hw` are in upstream's one-cycle deprecation window; `liveness`/`lifecycle`/`traffic` knobs unexposed), TrustTunnel (all vpn.toml/rules.toml keys valid on 1.1.0 and 1.3-beta.2), anytls (overlay matches v0.0.13; `-padding-scheme` unexposed), mieru (all JSON keys valid on 3.38/3.39), openflux (all .conf keys consumed at pin), tproxy (`-config`/`-profiles-file`; new `-check` unused). No lost or silently ignored fields anywhere; csqtt `--device-id` (lucx.308) remains the only historical case.
+
+Files: `bin/pack-sidecars.sh`, `.github/workflows/release.yml`, `caddylucx/go.mod` + `go.sum`, `third_party/sidecars/linux-amd64/{caddy-naive,naive-client,mieru,mieru-client,trusttunnel,trusttunnel-client}-linux-amd64.gz` + `README.md`, `.agents/02-architecture.md` (gateway/tproxy pin strings, openflux bump policy), `internal/config/config.go`.
+
+Tests: caddylucx `go build`/`go vet`/`go test` green on the new stack; `go test ./internal/lucx/... ./internal/awg/... -count=1` green (no-cgo set); `bash -n bin/pack-sidecars.sh`. Authoritative full build + pack-sidecars (arm64 xcaddy, naive tarballs, csqtt zigbuild) runs in GitHub Actions on push — watch the run before tagging.
+
+Retest plan (stand): naive round-trip client -5 ↔ server naive2 incl. a >1-minute quiet stream; gateway L4 Apply/Revert + Masking; TrustTunnel share/import from a 1.3 Throne client; mieru traffic counters; tproxy WEB proxy restart.
+
+**lucxVersion:** lucx.309
+
+---
+
+## lucx.308 — CSQTT core 2.5.0: pin bump + encrypted share links (2026-10-24)
+
+Upstream amurcanov/csqtt released **v2.5.0** (tag commit `fd936ef0`). Two breaking operator-visible changes:
+
+1. The share link format is now **AES-256-GCM encrypted**. The official Android APK (v2.5.x) rejects the old plaintext `csqtt://connect?...` links — upstream's `parseCsqttLink` decrypts only. Format (web_panel.rs `encrypt_csqtt_link`): payload stays the old body (`connect?v=2&host=…&peer=…&password=…&hashes=…`, hashes joined by a raw `+`), key = SHA256 of the fixed seed `csqtt-chiper-key`, IV = HMAC-SHA256(key, payload)[:12] (deterministic — the same payload always yields the same link), output = `csqtt://` + base64url(IV ‖ ciphertext ‖ tag). New optional `token=` param (VK access token) exists in upstream; LucX does not emit it. `hashes=` may not be combined with `token=` per the client parser.
+2. The CLI flag `--device-id` is **removed** from the 2.5.0 server (clap would fail on it). Device binding is client-minted/server-side now.
+
+Pin: `bin/pack-sidecars.sh` fetches `fd936ef087c34cc46f26111dc2361f43b8b03c07` (was `ace21228`, v2.1.9-era). Crypto dependency set essentially unchanged (aws-lc-rs was already in the pinned build), so the zigbuild-musl path keeps working; new deps are pure Rust (`hmac`, `sha1`, `flate2`, `tower-service`).
+
+Generators: Go `internal/lucx/tunnel/csqtt.go` (`ClientURI`, plus `csqttQEscape` mirroring upstream's byte-wise URL encoder — space must be `%20`, the client decodes a raw `+` as a literal plus) and frontend `genCsqttLink` (`inbound-link.ts`) both emit the encrypted form; TS uses the already-present `@noble/hashes` (sha256/hmac) and the new small `@noble/ciphers` dep (`gcm`, sync seal — the share modal chain is synchronous, WebCrypto is async-only). Backend surfaces (TunnelsPage status, subscription `genCsqttLink`) get the encrypted link for free via `ClientURI`. Import-side parsers (`internal/util/link/outbound.go`, link-label) treat `csqtt://` as opaque — no changes needed; labels degrade to protocol-only on encrypted bodies.
+
+Removed the Device ID form field + the `--device-id` emission from `BuildArgs` (kept the `DeviceID` settings field for round-tripping old rows). Device IDs have never been part of client configs — Rule 0 untouched; password/hash params are re-encoded, not changed, so old imports keep working and new shares import into APK 2.5+.
+
+Files: `bin/pack-sidecars.sh`, `internal/lucx/tunnel/csqtt.go`, `internal/lucx/tunnel/csqtt_test.go`, `frontend/src/lib/xray/inbound-link.ts`, `frontend/src/lib/awg/vpnuri.ts` (publicized `toBase64Url`), `frontend/src/test/csqtt-link.test.ts`, `frontend/src/pages/inbounds/form/protocols/csqtt.tsx`, all 13 `internal/web/translation/*.json` (csqttDeviceId keys removed), `frontend/package.json` (+`@noble/ciphers`), `internal/config/config.go`, `docs/LICENSING.md`, both README share-format lines.
+
+Tests: golden-vector equivalence — a node.js one-off implementing the upstream spec produced the ciphertexts hardcoded in `TestCsqttClientURI` and the TS `genCsqttLink` test, so Go/noble/node agree byte-for-byte; both suites also round-trip through an AES-GCM open and assert determinism (HMAC IV). `TestCsqttBuildArgs` asserts `--device-id` is never passed. `internal/lucx/tunnel`, `internal/util/link` green; frontend typecheck/lint/unit (1575)/build green.
+
+**lucxVersion:** lucx.308
+
+Notes: links issued BEFORE this update (plaintext) still import on the pinned 2.1.9-era core and on iOS legacy mode, but NOT on the official APK 2.5.x — operators should re-share after the core update. The upstream seed is a hardcoded constant of the client protocol (not a secret): anyone can decrypt any csqtt link; the encryption hides the password from shoulder-surfing/QR-adjacent logs, it is not key exchange.
+
+Retest plan: CSQTT inbound on 2.5.0 core → share modal shows `csqtt://<base64>`; import into APK 2.5+ imports; Tunnels page Client URI matches; `--device-id` removed means an inbound with a stale stored DeviceID starts cleanly.
+
+---
+## Development — optional kernel WireGuard (2026-10-21)
+
+Adds an opt-in Linux kernel backend for standard WireGuard with panel-managed peers, client profiles, traffic accounting and Xray TCP/UDP TPROXY routing. Peer edits and transport FwMark changes preserve the interface; existing inbounds retain their backend. Server-config import produces a disabled draft without executing hooks. The initial scope is local IPv4 peers.
+
+Malformed device settings preserve the previous bridge and interface while a separate removal-only pass enforces peer revocation, expiry and quotas. Missing iptables is supported with a warning and requires explicit host INPUT policy. The WireGuard guide documents routing setup, firewall requirements, lifecycle behavior and traffic limits. A privileged namespace test exercises real kernel traffic and revocation.
+
+## lucx.307 — Minecraft Bedrock (RakNet) obfuscation preset (2026-10-19)
+
+Operator request: add a Minecraft Bedrock preset to the AWG obfuscation generator the same way as the Amnezia Premium preset, following phenomenonrt.github.io ("Mimicry Generator — AmneziaWG × Minecraft"). The site generates AWG param sets whose junk/transport byte shapes imitate Minecraft Bedrock RakNet packets; we ported its **balanced** profile as a fifth `obfProfile` value `minecraft` (select option 5).
+
+Generator (`internal/awg/cps/params.go` `generateMinecraftParams`): junk band Jc 4-7, Jmin 48-96, Jmax jmin+32..800 (the site's Bedrock game-packet size range); v2 headers reuse the real RakNet IDs `5`, `7`, `28`, `132-143` (open-connection requests, unconnected pong, game packets 0x84-0x8f); v3/3.1 uses the standard compat `1,2,3,4` because header protection encrypts the header (same choice as Premium); 1.5 keeps single values with no range. S band 40-88/40-88/16-44/8-24 (v3: one shared base 16-28 for all four, per the site's equal-padding scheme), always >= MinSForHPK, with nudges for the two attainable total-size collisions (S2==S1+56, S3==S2+28) so `Validate()` holds on every draw.
+
+CPS set (`internal/awg/cps/session_bedrock.go`, new): I1 unconnected ping (0x01, timestamp + 16-byte RakNet offline magic + GUID), I2 open-connection request 1 (0x05, magic, protocol 11, 28 zero MTU-probe bytes), I3 open-connection request 2 (0x07, magic, AF_INET + endpoint IPv4 + port + MTU 1400 + GUID), I4/I5 game packets (0x84, 3-byte sequence, payload 128-192 / 288-416 bytes drawn per send). The endpoint port comes from the form (`serverPort` request field, new); an unusable endpoint falls back to TEST-NET-1 192.0.2.1 and port 19132 exactly like the source generator. The redraw-vs-budget contract is shared with the other profiles via a small `generateWithBudget` refactor (`cps.go`). RandomTrailers/DisableCookies stay off by default (panel law: auto-on breaks current GUI clients), so of the site's AWG 3.1 extras only the HPK and timer ranges apply.
+
+Controller `awgGenerateObfuscationRequest` gained `serverPort`; `obfProfile=minecraft` bypasses the domain-pool `GenerateCPS` path. Frontend: obfLevel schema max 5, new select option, level 5 shows I2-I5 and sends `fullI1I5`; i18n `awgObfMinecraft` in all 13 locales (hint updated in en/ru); api-docs updated; `openapi.json` regenerated.
+
+Files: `internal/awg/cps/{domains,params,cps}.go`, `internal/awg/cps/session_bedrock.go` + tests, `internal/web/controller/awg.go`, `frontend/src/pages/inbounds/form/protocols/awg.tsx`, `frontend/src/schemas/protocols/inbound/awg.ts`, `frontend/src/pages/api-docs/endpoints.ts`, `frontend/public/openapi.json`, all 13 `internal/web/translation/*.json`, `internal/config/config.go`. Credits: the source generator is phenomenonRT's site phenomenonrt.github.io — credited in code comments, this entry, the README inspiration tables (RU + EN) and the linked-projects line in all 5 further locale READMEs (the site has no public source repo or license; the profile is re-implemented from its output, not copied).
+
+Tests: `TestGenerateAWGParams_Minecraft` (200 draws per version: panel invariants, RakNet H sets, >= MinSForHPK, HPK accepted), `TestGenerateMinecraftCPS_Content` (RakNet literals incl. endpoint/port/MTU encoding, onlyI1, budget refusal), `TestSanitizeBedrockEndpoint`, and the full RakNet set imported through a live amneziawg-go `IpcSet` (client parser accepts every descriptor tag it uses). `internal/awg/...`, `internal/lucx/...` green; frontend typecheck/lint/unit (1573) green, build green.
+
+**lucxVersion:** lucx.307
+
+Notes: the preset imitates Bedrock/RakNet byte shape and sizes, like Premium imitates TLS — it is not a transport-compatible RakNet handshake replay. The I3 decoy embeds TEST-NET-1 as endpoint IP (the panel does not know the export host at inbound-form time); endpoint port is the inbound's real UDP port. The site's Java (TCP) profile was deliberately not ported.
+
+Retest plan: create an AWG inbound, pick "Minecraft Bedrock", click Regenerate — form fills Jc/Jmin/Jmax/S1-S4/H5-7-28-132-143 (or 1-4 with HPK on AWG3) and RakNet I1-I5; save, download client .conf — handshakes on AWG 2 and AWG 3 hosts; switching back to another profile regenerates TLS-shaped signatures.
+
+---
+
+## lucx.306 — missing geodata asset no longer keeps the core down (2026-10-19)
+
+Tester report (Игорь): after `x-ui update` to lucx.305 the core fell into a restart loop — `infra/conf: invalid geodata asset file: geoip_GA.dat > stat .../geoip_GA.dat: no such file or directory`. The seeded `geodata.assets` list reached the generated config while the 35 MB `geoip_GA.dat` never made it to `bin/` (raw.githubusercontent fetch can fail on a slow/blocked host — install fetch is never fatal by design), and the Xray core validates asset presence while building its config, exiting on the first missing file. Every watchdog retry rebuilt the same config → clients offline. Violated the spirit of Rule 0 (an update broke a working panel).
+
+Root fix (shared path): `XrayService.GetXrayConfig` now runs `lucx.SanitizeGeodataAssets` — the config handed to the core keeps only assets whose file exists in the panel's `bin/` folder. The saved `xrayTemplateConfig` template is never touched (Rule 0-safe, operator's GeodataSection intact): as soon as the file is provisioned — install fetch, panel Version → Geofiles button (`UpdateGeofile` restarts the core), `x-ui` menu — the next config build restores the asset automatically. Applies to ALL stock and custom assets, not only GA. install.sh geo fetch `--max-time` raised 180→600 s so the 35 MB GA geoip survives slow links.
+
+Files: `internal/lucx/geodata.go` (`SanitizeGeodataAssets`), `internal/lucx/geodata_test.go`, `internal/web/service/xray.go` (LUCX-HOOK call in `GetXrayConfig`), `install.sh` (fetch timeout), `internal/config/config.go`.
+
+Tests: new `TestSanitizeGeodataAssets` (missing file dropped, present file kept, idempotent, no-assets/invalid-json/nil pass through untouched).
+
+**lucxVersion:** lucx.306
+
+Immediate workaround for a panel stuck on lucx.305 (before lucx.306): fetch the missing file — `curl -fLRo /usr/local/x-ui/bin/geoip_GA.dat https://raw.githubusercontent.com/Ground-Zerro/Geo-Aggregator/main/geodat/geoip_GA.dat` — or panel Version → Geofiles → refresh GA; the core then starts.
+
+Retest plan: panel whose `bin/geoip_GA.dat` is absent starts the core cleanly (asset dropped from the running config only); after `x-ui update-all-geofiles`/Geofiles button the asset returns on the next config rebuild; geodata cron continues refreshing existing files.
+
+---
+
+## lucx.305 — Geo-Aggregator (Ground-Zerro) added to the stock geo list (2026-10-18)
+
+Tester request (pegakmop): add `geoip_GA.dat` + `geosite_GA.dat` from Ground-Zerro/Geo-Aggregator next to the existing third-party geobases. GA aggregates Loyalsoldier + v2fly + runetfreedom + itdoginfo + antifilter + b4geoip into RU-blocked domain/IP sets, refreshed daily by their GitHub Actions.
+
+Key constraint: **GA publishes no GitHub releases and no `.dat` checksums** — the files live on `main` as raw.githubusercontent.com URLs. The panel geofile flow (`geofileAllowlist` in `internal/web/service/server.go`) therefore gained a direct-source mode: `geofileEntry.URL` marks a no-release upstream — tag resolution is skipped, the URL is downloaded as-is, the `.sha256sum` verification is not applicable. Because raw.githubusercontent serves no `Last-Modified` (no 304 path), unchanged content is detected by comparing the staged bytes' SHA-256 with the installed file — identical content stages nothing and never restarts Xray (drops live connections). Release-based upstreams keep the pinned-tag + digest flow unchanged.
+
+Stock list goes 8 → 10 (`internal/lucx/geodata.go` `GeodataAssets`; verified the dat contents contain the documented tags, e.g. `itDog-russia-inside`, `category-ru`). Fresh installs get all 10 via `ApplyGeodata` seeding (`setting.go` init + `migrateLucxGeodataAssets` for vanilla-pair panels); **existing LucX panels are not re-seeded** (the `loyalsoldierPairOnly` gate), they get `_GA` via the panel's "use standard sources" button — same rollout as ROSCOM.
+
+Files: `internal/lucx/geodata.go`, `internal/lucx/geodata_test.go`, `internal/database/migrate_geodata.go` (log line), `internal/web/service/server.go` (geofileEntry.URL + direct flow + GA entries), `internal/web/service/server_geofile_test.go`, `internal/web/service/setting.go` (hook comment), `install.sh` (GEO table), `x-ui.sh` (GA dataset as `file:URL`, menu option 5, All → 6), `DockerInit.sh`, `bin/sourcecraft-release.sh` (geo tarball), `frontend/src/pages/index/VersionModal.tsx` (GEOFILES list), `internal/config/config.go` (lucxVersion).
+
+Tests: `TestApplyGeodata` (10 assets, GA present, idempotence kept), `TestStandardGeodataSources` (10 presets, GA raw URLs), new `TestUpdateGeofileInstallsDirectSource` (plain URL installs, no sidecar) and `TestUpdateGeofileDirectSourceSkipsIdenticalContent` (identical bytes → no staging, no Xray restart). `internal/lucx` + geofile tests green locally with CGO; full `internal/web/service` suite is flaky on Windows (TempDir races, different failures on pristine baseline — pre-existing).
+
+**lucxVersion:** lucx.305
+
+Notes: GA routing presets were deliberately not added to `frontend/src/pages/xray/basics/constants.ts` (312 tags — curation left for demand; tokens `ext:geosite_GA.dat:<tag>` work out of the box, the geo browser lists GA categories once the file lands in `bin/`). Existing panels with customized asset lists must click "use standard sources" to pick up GA (Rule 0: no silent config rewrites).
+
+Retest plan: fresh install → 10 geo files present; Version → Geofiles lists 10, per-file and "Update all" work (GA installs without checksum error); `x-ui` menu → option 5 updates GA; on a panel with custom geodata.assets — "use standard sources" re-adds the 10; a second "Update all" run right after does not restart Xray.
+
+---
+
+## lucx.304 — INCY mixed-sub: AWG export as amneziawg://base64url (2026-10-17)
+
+Tester report (lucx.300): plain-text Base64 SUB with VLESS + AWG + INCY routing — VLESS imports into INCY (iOS, AmneziaWG 3.1), both AWG entries silently missing. Panel's direct AWG config imports fine. Remote stand adapter proof: converting `amneziawg://query` + `vpn://` pairs into one `amneziawg://<base64url .conf>#<name>` per host makes both AWG appear in the same subscription.
+
+Cause: after the same `amneziawg://` scheme LucX (private key as userinfo, endpoint in authority, obfuscation in query) and INCY (docs.incy.cc/subscription-format: the whole stamped .conf as url-safe base64 in the URI body, name in `#`) mean different payloads. `vpn://` next to it does not import either — client incompatibility, not a LucX format bug.
+
+Fix (`internal/sub`):
+- Request-scoped `SubService.incyAwgExport`, set in the plain-SUB handler on the `ForRequest` copy via the existing `IsIncyClient(userAgent)` — the shared service never mutates, parallel INCY/other-client fetches stay independent.
+- In `genAwgLink` render: INCY mode emits per Host one `amneziawg://` + `base64.RawURLEncoding` of the full `BuildAwgClientConf` + `stampAwgShare` conf (Address, DNS, MTU, keys, PSK, AllowedIPs, Endpoint, J/S/H/I, HPK, AWG 3.1 ride inside the conf verbatim) + URL-encoded name; legacy `amneziawg://` query line and `vpn://` are not emitted in this mode; conf-build failure falls back to the legacy line. Non-INCY export unchanged.
+
+Files: `internal/sub/service.go`, `internal/sub/controller.go`, `internal/sub/service_awg_test.go`, `internal/config/config.go`.
+
+Tests: `TestGenAwgLink_IncyExport_Base64UrlConf` (single amneziawg:// line, decodes with RawURLEncoding, carries keys/PSK/Jc/S3/Endpoint, named fragment), `TestGenAwgLink_IncyExport_PerHostEntries` (two hosts → two entries, own Endpoint/name/remark; legacy + vpn:// absent), `TestIncyAwgExport_StaysOnRequestCopy` (flag never leaks into the shared service; non-INCY keeps amneziawg:// + vpn://). `internal/sub` green + gofumpt/vet clean; full-CGO verdict from CI.
+
+Retest plan: mixed SUB (2 VLESS + 2 AWG + routing) in INCY — both AWG, own Endpoint/name per Host; decoded conf equals the panel generator output; plain-text and outer-Base64 wrappers both import; VLESS/routing untouched.
+
+---
+
+## lucx.303 - routed anytls: SOCKS-auth мисматч моста + CAP_KILL панели (2026-10-16)
+
+VladufQa (прод, lucx.302): «без xray маршрутизации подключается, с xray нет». Живой тест с машины агента (sing-box): рукопожатие с сайдкаром проходит, egress через мост умирает сразу — curl rc=35 (SSL error) на обоих http/https. На боксе при этом вся цепочка на месте: child под uid 999 (`-cert .../anytls-9-cert.pem`, копии ✓), REDIRECT `uid 999 → 23990`, бридж слушает, hidden socks `in-8443-tcp` на 40349 жив, xray слушает.
+
+Корень — два дефекта:
+1. **Auth-мисматч (родился с lucx.273, выстрелил только сейчас):** мост `serveTproxySocksBridge` дiaлит скрытый socks **без кредов** (`proxy.SOCKS5(..., nil, ...)`, tproxy-паттерн = noauth), а `injectAnytlsEgress` ставил hidden socks с `auth: "password"` (наследие lucx.190) — socks отвергал noauth-рукопожатие моста, все routed-клиенты замирали. Фикс: `auth=false` для anytls hidden socks (lucx.303; naive left с auth — его диалер умеет передавать креды; тест пиннит noauth).
+2. **`CAP_KILL` нет в bounding set:** панель не могла стопнуть/рестартануть сайдкар под чужим uid — `stop before restart failed: operation not permitted`, затем `start: process is already running` на каждом тике; конфиги не применялись, пока сервис целиком не перезапускался. Фикс: **CAP_KILL** в `CapabilityBoundingSet` (3 юнита + drop-in-генераторы install.sh:1915 / update.sh:436).
+
+Бонус-наблюдение с бокса: `bind: address already in use` при обновлении 300→301→302 — старый (root) anytls переживал старт нового; на рестарте сервиса systemd чистит всю cgroup, так что цикл был разовым; с CAP_KILL панель сама зачистит.
+
+**lucxVersion:** lucx.303
+
+Files: `internal/web/service/xray.go`, `internal/web/service/xray_config_inject_test.go`, `x-ui.service.{debian,arch,rhel}`, `install.sh`, `update.sh`, `internal/config/config.go`.
+
+Tests: `TestInjectAnytlsEgress` дополнен пинном noauth (настройки без password); локально lucx-пакеты + vet + gofmt зелёные; CGO-пакеты — CI.
+
+Healing: `x-ui update` (юнит обновится → CAP_KILL; config.json перегенерится → hidden socks noauth) — Владу больше ничего; проверить: клиенты с «Маршрут через Xray» получают интернет через его цепочку (egress = VLESSNL), а не напрямую.
+
+Manual test plan (бокс Влада):
+1. Update → подождать reconcile: `ps -o user,cmd -p $(pgrep -f anytls-linux)` → `lucx-mtproxy`, `-p` инлайн.
+2. `runuser -u lucx-mtproxy -- curl https://api.ipify.org` → адрес VLESSNL-выхoда (не сервера).
+3. Клиент: с включённой маршрутизацией трафик идёт (мой sing-box-тест тоже).
+4. Пересохранение anytls: `config changed, restarting` + рестарт проходит без `operation not permitted`.
+
+---
+
+## lucx.302 - два routed anytls на одном хосте валили весь Xray (2026-10-16)
+
+VladufQa после lucx.301: включил «Route through Xray» на втором anytls-инбаунде → `xray config refused: inbounds "in-8444-tcp" and "in-8443-tcp" both bind 127.0.0.1:32779` → **весь Xray refused**, панель целиком без интернета; плюс `anytls-17 process exited: exit status 1` каждые 10с.
+
+Корень (класс, не экземпляр): `mtproto.FreeLocalPort()` выдаёт **свежеосвобождённые ephemeral-порты** — два сайдкара, сохранённых подряд, часто получают ОДИН И ТОТ ЖЕ порт; никаких исключений по уже занятым bridge-портам у нормалайзеров не было. А `injectSocksEgress` (любой сайдкар: anytls/naive/mtproto/mieru/trusttunnel/qwdtt/olcrtc) проверял только дубль ТЕГА, не порт — два hidden socks на одном bind → Xray refusing весь конфиг. (tproxy-инжектор — единственный, у кого проверка порта была.)
+
+Fix (lucx.302):
+- **`injectSocksEgress`**: защита от коллизии bind (protocol socks && тот же порт) → второй скрытый инбаунд пропускается с warn `re-save the inbound to re-allocate its egress port` — Xray остаётся живым в любом дуп-состоянии. Выживает первый отрендеренный (= меньший id).
+- **Аллокация с эксклюзивом**: `takenXrayEgressPorts` (порты routeXrayPort всех других сайдкаров) + `allocateXrayEgressPort` (до 16 попыток) в `normalizeSidecarXrayPort` и в mtproto-нормалайзере (LUCX-HOOK). Уже занятый STORED порт **пере-аллоцируется**: порт = бекенд-пломбинг, не клиентские данные (Rule 0 не тронут); лечит уже побитые строки при пересохранении.
+- **Детерминированный мост** (`reconcileAnytlsInbounds`): dial-цель uid-REDIRECT = routed anytls с **меньшим id**; egress остальных уезжает через его скрытый инбаунд (outboundTag второго игнорируется — текущее ограничение общего моста, задокументировано).
+
+**lucxVersion:** lucx.302
+
+Files: `internal/web/service/{xray.go, inbound.go, inbound_lucx.go, tunnel.go, xray_config_inject_test.go}`, `internal/config/config.go`.
+
+Tests: `TestInjectSocksEgress_PortCollisionSkips` (второй hidden socks на том же порту — не добавлен, тега нет), локально `go build` не-CGO-пакетов чистый; сервис-тесты (CGO/Linux) — CI. Живо-проверить: пересохранить оба anytls инбаунда → в `bin/config.json` у двух hidden socks разные порты; Xray стартует.
+
+Healing Влада (без обновления): выключить «Route через Xray» у одного из двух anytls → Xray поднимется. С обновлением: пересохранить оба — порты разъедутся, оба остаются routed (один мост).
+
+---
+
+## lucx.301 - anytls routeThroughXray действительно работает: child под uid моста (2026-10-16)
+
+VladufQa (прод 80.66.65.87): anytls `routeThroughXray: true`, процесс жив, TLS через его nginx SNI-фронт проходит, но egress уходит напрямую с хоста, мимо Xray — и нигде ни единой ошибки. Живой anytls-клиент (sing-box) через 443→nginx→127.0.0.1:8443 подтвердил: трафик ходит, но прямой, а не через Xray.
+
+Корень: мост `lucx.273` — REDIRECT под `--uid-owner lucx-mtproxy` (999), а процесс anytls запускался с кредами панели (root): правило никогда не матчится. Молчаливый no-op с самого рождения фичи.
+
+Fix (lucx.301):
+- routed anytls запускается **под общим uid моста**: `Instance.RunUid` (участник Fingerprint → переключение галки рестартует процесс) + `Proc.SetRunUid` + `prepareCmd` (linux `syscall.Credential{NoSetGroups}`, windows игнорирует).
+- uid не может читать панельные пути сертов (root-only) → серт/ключ едут как ExtraFiles-копии `anytls-N-cert.pem`/`anytls-N-key.pem` в tunnel-каталоге (fingerprint накрывает контент, продление серта рестартует), пароль — инлайн `-p` (файл под root — читать нечем).
+- панель chown'ит копии + data dir на uid/гид при старте: `prepareRunAssets` (linux), для этого в bounding set юнита и drop-in-генераторах добавлен **CAP_CHOWN** (`x-ui.service.{debian,arch,rhel}` + install.sh:1912 + update.sh:433).
+- удаление инбаунда чистит копии (removeManagedFiles; sweep добивает по префиксу `anytls-`).
+- деградация честная: нет юзера/сертификатов или chown не удался (юнит без CAP_CHOWN — старый хост) → процесс под root, egress прямой, **warn-once** (не флуд — урок lucx.300).
+
+**lucxVersion:** lucx.301
+
+Files: `internal/lucx/tunnel/{instance-поле manager.go, anytls_inbound.go, anytls.go, anytls_route_linux.go, anytls_route_other.go, process.go, process_other.go, process_windows.go}`, `x-ui.service.{debian,arch,rhel}`, `install.sh`, `update.sh`, `internal/config/config.go`.
+
+Tests (Windows-хост): `TestAnytlsRoutedRunUid` (no bridge user → RunUid 0 + исходные пути сертов; bridge uid → копии в ExtraFiles + `-p` инлайн + fpExtra пуст; fingerprint реагирует на uid), `go test ./internal/lucx/... -count=1` green, `go vet`/`gofmt` clean; кросс-сборка `GOOS=linux CGO_ENABLED=0 go build ./internal/lucx/... ./internal/config/...` + vet green (linux-плечи компилируются). Linux CGO-пейдж (chown-ветка start()) — CI после пуша.
+
+Healing: `x-ui update` (юнит+drop-in обновятся, CAP_CHOWN появится; на хостах с живым anytls-инбаундом ничего клиентского не меняется) — Владу больше ничего не нужно: его nginx-фронт и loopback-bind остаются, egress пройдёт через Xray.
+
+Manual test plan (прод Влада):
+1. Обновить панель до lucx.301, сохранить/дождаться reconcile anytls-9: `ps -o user,cmd -p $(pgrep -f 'anytls-linux-amd64')` → юзер lucx-mtproxy, `-l 127.0.0.1:8443 ... -cert .../anytls-9-cert.pem`.
+2. `iptables -t nat -S OUTPUT | grep lucx-tproxy-xray` → REDIRECT uid 999 → 23990.
+3. Клиент (sing-box) через суб: curl через anytls → egress по правилам Xray (не 80.66.65.87, если выведен через другой outbound).
+4. Выключить галку routeThroughXray → процесс снова root, egress прямой.
+
+---
+
+## lucx.300 - cover/naive reconcile floods "chmod: operation not permitted"; sidecar never starts (2026-10-16)
+
+Chingiz, 15.10.2026: every ~10 s the log warns `tunnel: reconcile cover-2: tunnel: make bin/caddy-naive-linux-amd64 executable: chmod bin/caddy-naive-linux-amd64: operation not permitted` (lucx.293 build, fresh install; reinstalling over the top once stopped the flood).
+
+Root cause (two stacked defects, confirmed against the live dev-latest tarball — assets are `runner runner`):
+1. The GitHub release tarball is packed by the Actions runner user; root extraction (`tar zxvf`, install.sh:2160) keeps GNU `--same-owner`, so every `bin/*` sidecar lands owned by the foreign runner uid. install.sh had no ownership normalization (update.sh did — its upstream "Changing owner" `chown -R root:root ${xui_folder}` — which is exactly why Chingiz's reinstall healed the host).
+2. lucx.293 narrowed the unit's `CapabilityBoundingSet` to `DAC_OVERRIDE NET_ADMIN NET_BIND_SERVICE NET_RAW SETUID SETGID` — no `CAP_FOWNER`. chmod(2) requires owner-match or CAP_FOWNER specifically (DAC_OVERRIDE does not cover mode changes), so the sandboxed root panel could not chmod any foreign-owned binary. `Manager.start` chmod'ed the binary unconditionally before `proc.Start`, treated EPERM as fatal, and the 10 s tunnel_job cron retried forever: flood + the cover sidecar stayed down.
+
+Fix (lucx.300):
+- `internal/lucx/tunnel/manager.go`: `ensureExecutable` — chmod only when the binary has no exec bit at all (`Perm()&0o111 == 0`); an already-executable foreign-owned binary starts without any chmod. A chmod that is actually needed and fails remains fatal (real state, real error).
+- `install.sh`: LUCX-HOOK `chown -R root:root .` right after the tar extraction + bin restore (after the `cp -a` custom-bin restore, which also preserves ownership), so a fresh install delivers root-owned files.
+- update.sh untouched: the existing upstream chown already normalizes on every update.
+
+**lucxVersion:** lucx.300
+
+Files: `internal/lucx/tunnel/manager.go`, `internal/lucx/tunnel/manager_exec_test.go`, `install.sh`, `internal/config/config.go`.
+
+Tests: `TestEnsureExecutable` — exec-flagged binaries (0755 / 0744) skip chmod even when chmod would fail (the flood regression), 0644 gets chmoded, a failing needed-chmod stays an error. `go test ./internal/lucx/... -count=1` green, `go build`/`go vet`/`gofmt -l` clean, `bash -n` on install.sh/update.sh green. Verified the ownership claim on the real dev-latest release tarball (`tar -tzvf`: `runner runner`, `-rwxr-xr-x`).
+
+Healing an already-hit host: update the panel (already-executable binaries start with fix (a) without any chown), or `chown root:root /usr/local/x-ui/bin/*` on an old build.
+
+Manual test plan (fresh host, GitHub tarball):
+1. Install the release tarball → `ls -la /usr/local/x-ui/bin/*.linux-*`: owner root.
+2. Enable a Cover/Naive inbound: no `chmod ... operation not permitted` in the log, sidecar `ps` entry appears on the first reconcile tick.
+3. On a host still carrying foreign-owned binaries: no flood either — chmod is skipped because the exec bits are already present.
+
+---
+
+## lucx.299 - upstream v3.10.2 overlay: kernel-AWG is a tunnel again for client sync (2026-10-14)
+
+Follow-up to the v3.10.2 merge (same release): CI went red on four LucX client tests. Upstream's new `syncInboundClients` knows two tunnels — `WireGuard`/`AmneziaWG` — and our kernel-AWG (`model.AWG = "awg"`) was not on the list, so upstream's new `keepLinkOwnedFields` treated an `awg` inbound as non-tunnel: the lower-rank restore wiped the attach mint from the record (inbound settings kept the key, the record — the subscription's key source — went empty, the other inbound's handshake died silently). `TestAttach/BulkAttach_TwoTunnelInboundsShareOneKeypair`, `TestCreateClient_KeylessAttachKeepsIdentityPSK`, `TestSyncInbound_StaleSettingsSnapshotKeepsIdentityPreSharedKey` failed.
+
+Fix (two commits, 49b53624 + 3968270c): `model.AWG` joins `isTunnel` and `clientsOnLowerTunnel`'s protocol list; in the outranked restore a **blank `before` field is not an ownership claim** — a peer field minted on an upper tunnel's attach (identity PSK, fresh AllowedIPs, keypair) survives, a claimed (non-empty) field is restored as before. Upstream's own tests untouched; new table test `TestKeepLinkOwnedFields_BlankBeforeIsNotOwnership`.
+
+Logical-conflict sweep of the whole range (post-merge review, all clean):
+- `release.yml` windows job — go-winres + `3x-ui.exe` rename self-consistent; our release artifacts stay the linux tarballs; winres files merged.
+- mtproto `pendingHandshakesMaxPerIp` — parse → fingerprint → `[defense.pending-handshakes]` render → settings → form + i18n keys are all merged; our 0600 hook intact.
+- node traffic merge tests — upstream's write-count tests appended; our share-only/auto-tag assertions kept.
+- vmess link fm/mKCP/XHTTP-inline (upstream `internal/util/link` + frontend parser) — our `internal/lucx` parsers do not parse vmess links; no overlap.
+- sponsor feed `sponsors/3X/sponsors.json` uses only the `page` slot — compatible with the upstream slot set (`dashboard/page/login`, sidebar dropped); our fork URLs hook restored on their raw.githubusercontent move of panel/sponsor.go.
+- Incy isolation (#6810) over our RoscomVPN routing hook: profile rules are wiped for INCY (falls to the shared JSON profile, upstream intent), a RoscomVPN **source** still rules every client panel-wide — deliberate.
+- i18n dead-key sweep removed 8 upstream keys whose code did not arrive in this range (dev-channel UI, user picker) — same policy as lucx.179.
+
+Gates: local gofumpt/vet/build + unit (no-CGO) green; CI (go-test, race, golangci, codegen, govulncheck, frontend, node-e2e, fuzz-smoke, postgres-durable-first) green on 3968270c.
+
+---
+
+## merge: origin/main v3.10.2 → lucx.299 (2026-10-14)
+
+Upstream sync v3.10.0 → v3.10.2: 14 commits, 56 files. Snapshot: `backup/v3.10.0-lucx.299`. Hook audit: `git grep -c LUCX-HOOK` = 153 files before and after the merge — **zero drops**. LucX base version file reads `3.10.2`.
+
+Merged upstream work: mtg per-IP pending-handshake limit (+ settings i18n, form); whole-crash-report capture and in-place shadowsocks changes in xray; vmess link inline XHTTP/fm/mKCP fields (#6808/#6809); Hysteria2 Gecko obfs into Clash/Mihomo; Incy routing isolation from Happ headers (#6810); node traffic merge writes only changed client rows; syncInboundClients hardening (link-owned fields, lower-tunnel rank, settleRecordFlows); sponsors rework — sidebar slot dropped, simplified Sponsors page, raw.githubusercontent feed; Windows build as 3x-ui.exe with icon/version manifest (winres, go-winres).
+
+Conflicts (16) and resolutions:
+- 13 `internal/web/translation/*.json` — script-merged: ours-base + upstream keys/values on top, upstream-removed sponsor placement keys (`placements`, `placementSidebar*`, `placementDashboard*`, `placementLogin*`, `placementPage*`, `available`, `takenUntil`, `activeCount` — 12, nothing references them anymore) dropped, our `sponsors.intro`/`yourBrandText` (LucX wording, lucx.284) kept. Parity 3289 keys × 13 locales.
+- `internal/sub/controller.go` — upstream Incy isolation in `ApplyCommonHeaders`: their `incyClient` block + `ApplyIncyHeaders(…incyClient)` over our RoscomVPN routing LUCX-HOOK (their duplicate rule-resolution trio dropped — our hook already resolves; INCY with RoscomVPN source still gets source rules, INCY without falls to the shared JSON profile).
+- `internal/web/service/panel/sponsor.go` — ours: fork sponsor URLs LUCX-HOOK over upstream's raw.githubusercontent move.
+- `internal/web/service/xray_wireguard_config_test.go` — ours (`KeepAliveValue` expectations) + upstream's reordering/`AmneziaWG identity` wording.
+
+Post-merge dead-key sweep (per lucx.179 policy): upstream keys `pages.index.{devChannel,devChannelWarning,currentCommit,latestCommit}`, `pages.nodes.updateDevChannel`, `pages.xray.ruleForm.{userPlaceholder,userEmpty,userLoadError}` dropped from all 13 — our PanelUpdateModal/NodesPages stay stable-only and RuleFormModal keeps the lucx client picker; upstream's code using them did not change in this range, so it is not in our tree. i18n-dead-keys green.
+
+Gates on the Windows host: gofumpt clean, `go vet` (all but CGO-locked `internal/database` — pre-existing), `go build` of awg/lucx/mtproto/sub, `go test ./internal/awg/... ./internal/lucx/...` green, `npm run gen` (no delta), typecheck + oxlint + vitest unit (1573/1573) + build green. CGO packages checked by CI after push.
+
+Healing: `x-ui update`. No LucX behavior changed by the sync itself; panel `version` becomes 3.x upstream numbering — the overlay keeps `lucx.299`.
+
+---
+
+## lucx.299 - masking closes manually created allow rules too (2026-10-14)
+
+Malderin follow-up to lucx.297: the panel port stayed open in `ufw status` when the allow rule was created by hand before applying masking ("сбросил файрвол, сразу добавил 2 правила … потом при применении маскинга эти 2 порта не трогаются"). Root cause (verified live on ufw 0.36.2, stand 144.31.224.212): a bare `ufw allow 35347` is stored as **one proto-less rule** — `ufw --force delete allow 35347/tcp` and `…/udp` both report "Could not delete non-existent rule" — and a full-syntax rule (`ufw allow proto tcp from 1.2.3.4 to any port X`) never matches simple spec deletes either. So the canonical close specs only cleared rules in the panel's own shape; anything pasted in another form survived every apply.
+
+Fix: `ApplyUFW` now sweeps `ufw show added` after the per-spec deletes and deletes every remaining **incoming allow** rule whose target port is in the close set (panel/sub hidden, moved inbounds, hidden naive). The `ufw show added` lines minus the `ufw ` prefix are the exact `ufw delete` arguments (verified: bare, `in <port>/tcp`, full-syntax forms all delete). Not touched: `from port … to <any>` source-port matches (last-`port`-token parse wins), port ranges `p1:p2`, outbound rules, application profiles, deny/route rules. Port 22 / sshd spec skips are unchanged.
+
+**lucxVersion:** lucx.299
+
+Files: `internal/config/config.go`, `internal/lucx/tunnel/gateway_ufw.go`, `internal/lucx/tunnel/gateway_ufw_test.go`.
+
+Tests: `TestApplyUFW_ClosesManualRules` (bare + `in` + full-syntax forms deleted, 22/80/443 kept), `TestApplyUFW_SweepLeavesForeignTargetsAlone` (range/out/app-profile/deny/route and foreign target rules stay), `TestUfwLineOpensPort` (7 positive / 10 negative line forms, all captured from the stand), existing `TestApplyUFW_*` green with `ufwShowAdded` stubbed. Live delete semantics on the stand: bare `ufw delete allow 35399` removes the proto-less rule (v4+v6), `ufw delete allow from 1.2.3.4 to any port 35387 proto tcp` removes the full-syntax rule; experiment rules cleaned up. `go test ./internal/lucx/... -count=1` + `go vet` + `gofmt -l` green on the Windows host.
+
+Healing: `x-ui update`; Apply UFW runs only on the next Apply of masking (Revert then Apply with the UFW box on) — no inbound or client config changes.
+
+Manual test plan:
+1. `ufw allow <panel-port>` by hand (bare, while masking is off), note it in `ufw status`.
+2. Panel → masking → apply with hide panel + UFW: `ufw status` must not list `<panel-port>` anymore (in any form: bare, `/tcp`, `/udp`, full syntax).
+3. Revert: the panel/sub/moved ports come back (`ufw status` lists them); the manual bare form returns as `<port>/tcp` (+`/udp`), not the original bare entry — acceptable: the port is open as designed.
+
+Not covered: rules with a port **range** containing the panel port (e.g. `ufw allow 30000:40000/tcp`) are left alone — one close must not delete a range that also opens other ports; a foreign firewall (firewalld/shorewall) is untouched by design (UFW checkbox only).
+
+---
+
+## lucx.298 - ACME HTTP-01 next to a LucX Caddy on :80; AWG version pill again (2026-10-14)
+
+Bundled release: PR #134 (maksimkurb, ACME vs Cover) + the dashboard AWG version pill (below). lucx.295/297-style docs tail of lucx.297 is not duplicated here.
 
 The Cover site (and standalone naive with `useAcme`) binds TCP :80. acme.sh standalone (`x-ui` SSL menu, `install.sh`) then failed with `tcp port 80 is already used`. Cron renewal of a cert issued before Cover was enabled broke silently. The only workaround was disabling the inbound by hand.
 
@@ -47,7 +1679,7 @@ The saved port never has to match the :80 owner, so a renewal succeeds on its fi
 
 Migration (`lucx-acme.sh migrate`, run by `install.sh`, `update.sh`, the x-ui renew menu and any port change in the prompt) moves standalone certs with no hooks of their own on port 80 to the saved port and our pre/post hooks, and re-points ours after a port change. Webroot/DNS certs, custom ports, and certs with an operator pre/post hook are left alone, as is everything when socat is missing. `x-ui uninstall` runs `lucx-acme.sh restore` first, so the certs renew on plain :80 again. The hooks are guarded with `[ ! -f … ] ||`, so a removed helper never blocks acme.sh. Docker ships the helper in `/app/bin` (`DockerInit.sh`).
 
-**lucxVersion:** lucx.296
+**lucxVersion:** lucx.298
 
 Files: `internal/lucx/tunnel/acme.go` (new), `cover.go`, `naive.go`, `acme_test.go` (new), `cover_test.go`; `bin/lucx-acme.sh` (new); `x-ui.sh`, `install.sh`, `update.sh`, `.github/workflows/release.yml`, `bin/sourcecraft-release.sh`, `DockerInit.sh`.
 
@@ -62,6 +1694,60 @@ Manual test plan:
 4. Re-run the issue prompt and choose `31000`: `/etc/x-ui/acme-http-port` holds 31000, the step-1 conf moves to 31000, the Cover Caddyfile (`bin/tunnel/cover-*.caddyfile`) relays to 31000 after the next reconcile, and a renewal right away still works (bridge 29380 -> 31000).
 
 Not covered: with Masking on, nothing listens on :80 (the cover moves to loopback), so the socat path is used. UFW default-deny may still block :80 from outside. `setup_ssl_certificate` in `install.sh` has no caller and was left alone.
+
+Merge note (release time): the PR predates lucx.296/297, so on merge the docs conflict was renumbered (debug pattern `1aw` → `1ay`) and `acme_test.go` got `//go:build !windows` (`syscall.Kill` did not compile on the Windows dev host; tests unchanged and green on Linux/CI).
+
+### AWG version pill shows the module version again
+
+The dashboard pill next to the Xray version showed a 12-char hash since lucx.~90 (`9cd76abb`): `collectHostStatus` read the pin SHA from `/etc/x-ui/.awg-module-version` — the update.sh rebuild-gate marker, not a displayable version. It now reads the loaded module's baked version from `/sys/module/amneziawg/version` (WIREGUARD_VERSION stamp; on the stand = `3.1.20260812`). Module not loaded → empty string, the pill hides and the `module_not_loaded` state stays the single source of truth. The SHA marker keeps its rebuild-gate role in `update.sh`; `moduleSHA()` deleted as dead code.
+
+Files: `internal/awg/host_status.go`, `platform_linux.go` (+`TestLoadedModuleVersion` moved to `platform_linux_test.go`), `platform_other.go`, `host_status_test.go`. Gates: `go vet` + `go test ./internal/awg/` green on the Windows host and cross-`GOOS=linux` vet, `gofmt` clean. Live check: stand `144.31.224.212` — `cat /sys/module/amneziawg/version` = `3.1.20260812`, marker = full pin SHA.
+
+Healing: `x-ui update`. No inbound/client changes; the panel API field `awg.version` merely changes what it carries.
+
+**Release:** v3.10.0-lucx.298 - https://github.com/AlexeyLCP/lucx-ui/releases/tag/v3.10.0-lucx.298
+
+---
+
+## lucx.297 - masking no longer leaves hidden ports open in UFW (2026-10-14)
+
+Malderin (v3.10.0-lucx.295): applying masking with hide-panel produced `ufw status` listing every port as allow, including the panel port; re-applying changed nothing. Root cause: the UFW allow/close lists knew only the "selected" maskable rows. Protocols hidden **inside the site** (`req.Inside`) and **hidden naive** (`req.HideNaive`) are not in `selected`, so GatewayUFWAllow kept (and re-added on every apply) their public ports, and GatewayUFWClose never closed them. The ufw `--force delete allow <spec>` syntax itself is valid (canonical ufw 0.36 parser strips `--force` before command parsing — checked the upstream source).
+
+Fix: both lists now take a `moved` set — every inbound whose port leaves the public internet: selected maskables, inside-rows, hideNaive — matching the snapshot loop's move condition exactly. When the panel is hidden, close also removes the udp halves of the panel/sub allow rules (a bare `ufw allow <port>` pasted manually leaves a `/udp` tail that still shows in status). `ufwDefaultSelected` renamed to `ufwDefaultMoved`.
+
+**lucxVersion:** lucx.297
+
+Files: `internal/lucx/tunnel/gateway_ufw.go`, `internal/web/service/gateway.go`, `internal/lucx/tunnel/gateway_ufw_test.go`.
+
+Tests: `TestGatewayUFW_MovedRowsVanishFromAllow` (inside/hideNaive/class-skip rows vs allow and close), existing `TestGatewayUFWAllow`, `TestGatewayUFWClose_DropsHiddenKeepsPublic`, `TestGatewayUFWRestore_PanelAndMovedPorts`, `TestGatewayUFW_SSH22StaysTCPOnly`, `TestApplyUFW_*` green; `gofmt -l` clean. Full gates in CI (`internal/database` needs CGO).
+
+Healing: update via `x-ui update`, restart, then masking Revert → Apply again. UFW rules are rewritten in one pass. Still correct to see SSH, 80, 443 (the mask facade) and ports of inbounds NOT masked. Issued client configs are not rewritten.
+
+Note: allow rules added manually as a bare port (`ufw allow 5432`) get their tcp half closed; the udp half is removed by this fix too. If something still shows in `ufw status`, `ufw show added` prints the exact rules.
+
+Verification (test stand 144.31.224.212, dev-latest lucx.297): cover+tproxy on 443, hide panel, UFW on → `ufw status` = exactly `22/tcp, 80/tcp, 443/tcp, 443/udp` (+v6); panel 2053 closed from the outside (TcpTestSucceeded=False); facade 443 open; Revert → UFW inactive again (it was not active before), gateway disabled, snapshot cleared. Fail2ban jails `3x-ipl`/`sshd` on the stand banned the testing IP mid-test and expired — unrelated to the fix.
+
+**Release:** v3.10.0-lucx.297 - https://github.com/AlexeyLCP/lucx-ui/releases/tag/v3.10.0-lucx.297
+
+---
+
+## lucx.296 - no double traffic accounting for routed sidecars (2026-10-14)
+
+Operator report: the panel metered far more traffic than real usage (2 TB class), a sidecar double-count was suspected. Audit of the accounting paths: AWG is clean — kernel `awg show dump` deltas are baseline-corrected and the routed inbound rollup is already skipped in favor of the Xray TUN meter (`awg_job.go` routedTags guard; naive/mieru/trusttunnel have the same guard). Four tunnel collectors lacked the guard, so for `routeThroughXray` inbounds the same bytes were written to the inbound total twice — once by the Xray bridge (SOCKS/TUN inbound carrying the inbound tag), once by the sidecar scraper: anytls, olcrtc, qwdtt, tproxy. (qwdtt defaults `routeThroughXray: true`, so this hit by default.)
+
+**lucxVersion:** lucx.296
+
+Files: `internal/web/job/tunnel_job.go` (routedTags guard in collectAnytlsTraffic / collectOlcrtcTraffic / collectQwdttTraffic / collectTproxyTraffic + new commitSidecarScrape parameter), `internal/lucx/tunnel/sidecar_stats.go` (shortcut comment).
+
+Tests: `go test ./internal/lucx/tunnel/ -count=1` green; `gofmt -l` clean. Full gates run in CI (`internal/database` needs CGO, not available on the Windows host).
+
+Known limit (documented, not fixed): non-routed olcrtc/tproxy meter from `/proc/<pid>/io` (rchar/wchar) — every read+write syscall, so a direct (non-routed) relay still meters roughly 2x its network bytes plus process I/O (logs). Upgrading to per-interface counters is a separate change.
+
+Healing: `x-ui update`, restart. Overcounted totals persist in the DB until a per-client/inbound reset — the fix stops future double-adding only.
+
+E2E note: the test stand runs no sidecar inbounds, so this fix was verified by unit tests only (no routed traffic to observe); the masking/UFW fix shipped in the same release has full stand verification (see lucx.297).
+
+**Release:** v3.10.0-lucx.297 - https://github.com/AlexeyLCP/lucx-ui/releases/tag/v3.10.0-lucx.297
 
 ---
 
@@ -5753,3 +7439,25 @@ Form: same "via Xray" switch as TrustTunnel + outbound picker.
 Tests: TestTproxyConfigRouteThroughXray, TestInjectTproxyEgress_DokodemoFollowRedirect.
 
 lucxVersion: lucx.205
+
+## Fix: qWDTT INFO spam in the panel log — errors-only echo (lucx.345)
+
+Tester Orly (06.11.2026): "отключить отладочное логгирование qWDTT, оставить
+только ошибки" - journald/panel log drowned in `tunnel: qwdtt | [Stats]…`,
+`[RAW]…` and per-connection INFO lines. The core binary has no log-level
+flag (verified SpaceNeuroX v1.4.4 a296c57e and master), so the panel is the
+only choke point. Fix: `procEchoFilter` in internal/lucx/tunnel/process.go -
+the manager key `qwdtt` echoes to the panel log only lines containing
+`[ERR]` or `panic:`; every other core echoes everything as before. The ring
+buffer (Tunnels -> Logs, GET /panel/api/tunnel/qwdtt/logs) and the
+3xui.log file backend (always DEBUG) keep the full output. Panel lifecycle
+lines (started/stopped/exited) unchanged. If a future qwdtt release renames
+the [ERR] tag, errors go quiet in journald - check the Logs viewer first
+(Pattern 1ag in .agents/07-debug-tunnels.md).
+
+Tests: TestProcEchoFilterQwdttForwardsOnlyErrors,
+TestProcLogWriterQwdttRingKeepsAllEchoKeepsErrors (go test
+./internal/lucx/... green; parser pkg blocked by local AV flake, no deps).
+
+lucxVersion: lucx.345
+

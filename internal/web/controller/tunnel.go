@@ -10,11 +10,13 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
 	"github.com/mhsanaei/3x-ui/v3/internal/lucx/tunnel"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/service"
@@ -97,6 +99,49 @@ func NewTunnelController(g *gin.RouterGroup) *TunnelController {
 // restartXrayIfNeeded regenerates Xray config when the tunnel SOCKS bridge
 // must be added/moved/dropped. Force-restart (not the deferred flag) so the
 // bridge is live before the caller returns.
+func clipHostMsg(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, s)
+	s = strings.TrimSpace(s)
+	if len(s) > 300 {
+		s = s[:300]
+	}
+	return s
+}
+
+func (a *TunnelController) hostCheck(c *gin.Context) {
+	var req struct {
+		Protocol string `json:"protocol"`
+		Port     int    `json:"port"`
+		Listen   string `json:"listen"`
+		Tag      string `json:"tag"`
+		Settings string `json:"settings"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		jsonObj(c, gin.H{"status": "refused", "msg": "invalid host check"}, nil)
+		return
+	}
+	err := (&service.InboundService{}).CheckLucxHostLocal(&model.Inbound{
+		Protocol: model.Protocol(req.Protocol),
+		Port:     req.Port,
+		Listen:   req.Listen,
+		Tag:      req.Tag,
+		Settings: req.Settings,
+	})
+	if err != nil {
+		jsonObj(c, gin.H{"status": "refused", "msg": clipHostMsg(err.Error())}, nil)
+		return
+	}
+	jsonObj(c, gin.H{"status": "ok"}, nil)
+}
+
+// restartXrayIfNeeded regenerates Xray config when the tunnel SOCKS bridge
+// must be added/moved/dropped. Force-restart (not the deferred flag) so the
+// bridge is live before the caller returns.
 func (a *TunnelController) restartXrayIfNeeded(need bool) {
 	if !need {
 		return
@@ -107,6 +152,8 @@ func (a *TunnelController) restartXrayIfNeeded(need bool) {
 }
 
 func (a *TunnelController) initRouter(g *gin.RouterGroup) {
+	g.POST("/hostCheck", a.hostCheck)
+
 	naive := g.Group("/naive")
 	naive.GET("/status", a.status)
 	naive.GET("/config", a.getConfig)
@@ -153,6 +200,28 @@ func (a *TunnelController) initRouter(g *gin.RouterGroup) {
 	csqtt.POST("/download", a.csqttDownloadBinary)
 	csqtt.POST("/deleteBinary", a.csqttDeleteBinary)
 
+	masterdns := g.Group("/masterdns")
+	masterdns.GET("/status", a.masterdnsStatus)
+	masterdns.GET("/logs", a.masterdnsLogs)
+	masterdns.POST("/upload", a.masterdnsUploadBinary)
+	masterdns.POST("/download", a.masterdnsDownloadBinary)
+	masterdns.POST("/deleteBinary", a.masterdnsDeleteBinary)
+
+	// aivpn: binary management for Settings → Cores plus the client surface
+	// of the one local inbound (the core owns clients.json; the panel drives
+	// its management unix-socket API).
+	aivpn := g.Group("/aivpn")
+	aivpn.GET("/status", a.aivpnStatus)
+	aivpn.GET("/logs", a.aivpnLogs)
+	aivpn.POST("/upload", a.aivpnUploadBinary)
+	aivpn.POST("/download", a.aivpnDownloadBinary)
+	aivpn.POST("/deleteBinary", a.aivpnDeleteBinary)
+	aivpn.GET("/clients", a.aivpnClients)
+	aivpn.GET("/clientKey", a.aivpnClientKey)
+	aivpn.POST("/clients/add", a.aivpnAddClient)
+	aivpn.POST("/clients/enable", a.aivpnEnableClient)
+	aivpn.POST("/clients/delete", a.aivpnDeleteClient)
+
 	openflux := g.Group("/openflux")
 	openflux.GET("/status", a.openfluxStatus)
 	openflux.GET("/logs", a.openfluxLogs)
@@ -185,6 +254,15 @@ func (a *TunnelController) initRouter(g *gin.RouterGroup) {
 	anytls.POST("/download", a.anytlsDownloadBinary)
 	anytls.POST("/deleteBinary", a.anytlsDeleteBinary)
 
+	// wgobfs serves both the kernel-WG wgo proxies and wgosocks exits with
+	// one binary: status, logs and binary management for Settings → Cores.
+	wgo := g.Group("/wgo")
+	wgo.GET("/status", a.wgoCoreStatus)
+	wgo.GET("/logs", a.wgoCoreLogs)
+	wgo.POST("/upload", a.wgoUploadBinary)
+	wgo.POST("/download", a.wgoDownloadBinary)
+	wgo.POST("/deleteBinary", a.wgoDeleteBinary)
+
 	tproxy := g.Group("/tproxy")
 	tproxy.GET("/status", a.tproxyStatus)
 	tproxy.GET("/logs", a.tproxyLogs)
@@ -200,6 +278,18 @@ func (a *TunnelController) initRouter(g *gin.RouterGroup) {
 	mtproxy.POST("/upload", a.mtproxyUploadBinary)
 	mtproxy.POST("/download", a.mtproxyDownloadBinary)
 	mtproxy.POST("/deleteBinary", a.mtproxyDeleteBinary)
+	telemt := g.Group("/telemt")
+	telemt.GET("/status", a.telemtStatus)
+	telemt.GET("/logs", a.telemtLogs)
+	telemt.POST("/upload", a.telemtUploadBinary)
+	telemt.POST("/download", a.telemtDownloadBinary)
+	telemt.POST("/deleteBinary", a.telemtDeleteBinary)
+	zig := g.Group("/mtproto-zig")
+	zig.GET("/status", a.mtprotoZigStatus)
+	zig.GET("/logs", a.mtprotoZigLogs)
+	zig.POST("/upload", a.mtprotoZigUploadBinary)
+	zig.POST("/download", a.mtprotoZigDownloadBinary)
+	zig.POST("/deleteBinary", a.mtprotoZigDeleteBinary)
 }
 
 func (a *TunnelController) status(c *gin.Context) {
@@ -598,6 +688,186 @@ func (a *TunnelController) csqttDeleteBinary(c *gin.Context) {
 	jsonMsg(c, I18nWeb(c, "pages.tunnels.csqtt.toasts.deleted"), nil)
 }
 
+func (a *TunnelController) masterdnsStatus(c *gin.Context) {
+	st, err := a.svc.MasterdnsStatus()
+	if err != nil {
+		jsonMsg(c, "tunnel: masterdns status failed", err)
+		return
+	}
+	jsonObj(c, st, nil)
+}
+
+func (a *TunnelController) masterdnsLogs(c *gin.Context) {
+	lines := 200
+	if n := c.Query("lines"); n != "" {
+		if parsed, err := strconv.Atoi(n); err == nil && parsed > 0 {
+			lines = parsed
+		}
+	}
+	jsonObj(c, a.svc.MasterdnsLogs(lines), nil)
+}
+
+func (a *TunnelController) masterdnsUploadBinary(c *gin.Context) {
+	dst := tunnel.Masterdns.BinaryPath()
+	if err := saveCoreUpload(c, dst); err != nil {
+		logger.Warning("tunnel: save uploaded masterdns binary failed:", err)
+		jsonMsg(c, "tunnel: masterdns upload failed", err)
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "pages.tunnels.masterdns.toasts.uploaded"), nil)
+}
+
+func (a *TunnelController) masterdnsDownloadBinary(c *gin.Context) {
+	var body tunnelDownloadRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		jsonMsg(c, "tunnel: invalid masterdns download body", err)
+		return
+	}
+	if err := a.svc.DownloadMasterdnsBinary(body.URL, body.SHA256); err != nil {
+		jsonMsg(c, "tunnel: masterdns download failed", err)
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "pages.tunnels.masterdns.toasts.downloaded"), nil)
+}
+
+func (a *TunnelController) masterdnsDeleteBinary(c *gin.Context) {
+	if err := a.svc.DeleteMasterdnsBinary(); err != nil {
+		jsonMsg(c, "tunnel: masterdns binary delete failed", err)
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "pages.tunnels.masterdns.toasts.deleted"), nil)
+}
+
+func (a *TunnelController) aivpnStatus(c *gin.Context) {
+	st, err := a.svc.AivpnStatus()
+	if err != nil {
+		jsonMsg(c, "tunnel: aivpn status failed", err)
+		return
+	}
+	jsonObj(c, st, nil)
+}
+
+func (a *TunnelController) aivpnLogs(c *gin.Context) {
+	lines := 200
+	if n := c.Query("lines"); n != "" {
+		if parsed, err := strconv.Atoi(n); err == nil && parsed > 0 {
+			lines = parsed
+		}
+	}
+	jsonObj(c, a.svc.AivpnLogs(lines), nil)
+}
+
+func (a *TunnelController) aivpnUploadBinary(c *gin.Context) {
+	dst := tunnel.Aivpn.BinaryPath()
+	if err := saveCoreUpload(c, dst); err != nil {
+		logger.Warning("tunnel: save uploaded aivpn binary failed:", err)
+		jsonMsg(c, "tunnel: aivpn upload failed", err)
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "pages.tunnels.aivpn.toasts.uploaded"), nil)
+}
+
+func (a *TunnelController) aivpnDownloadBinary(c *gin.Context) {
+	var body tunnelDownloadRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		jsonMsg(c, "tunnel: invalid aivpn download body", err)
+		return
+	}
+	if err := a.svc.DownloadAivpnBinary(body.URL, body.SHA256); err != nil {
+		jsonMsg(c, "tunnel: aivpn download failed", err)
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "pages.tunnels.aivpn.toasts.downloaded"), nil)
+}
+
+func (a *TunnelController) aivpnDeleteBinary(c *gin.Context) {
+	if err := a.svc.DeleteAivpnBinary(); err != nil {
+		jsonMsg(c, "tunnel: aivpn binary delete failed", err)
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "pages.tunnels.aivpn.toasts.deleted"), nil)
+}
+
+type aivpnClientRequest struct {
+	InboundId int    `json:"inboundId"`
+	Name      string `json:"name"`
+	ClientId  string `json:"clientId"`
+	Enabled   bool   `json:"enabled"`
+}
+
+func (a *TunnelController) aivpnClients(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Query("inboundId"))
+	if inbound := (&service.TunnelService{}).AivpnInbound(id); inbound == nil {
+		jsonMsg(c, "tunnel: aivpn inbound not found or disabled", nil)
+		return
+	}
+	rows, err := (&service.AivpnService{}).Clients(id)
+	if err != nil {
+		jsonMsg(c, "tunnel: aivpn clients failed", err)
+		return
+	}
+	jsonObj(c, rows, nil)
+}
+
+func (a *TunnelController) aivpnClientKey(c *gin.Context) {
+	id := strings.TrimSpace(c.Query("clientId"))
+	if id == "" {
+		jsonMsg(c, "tunnel: aivpn client id is required", nil)
+		return
+	}
+	inboundId, _ := strconv.Atoi(c.Query("inboundId"))
+	if inbound := (&service.TunnelService{}).AivpnInbound(inboundId); inbound == nil {
+		jsonMsg(c, "tunnel: aivpn inbound not found or disabled", nil)
+		return
+	}
+	key, err := (&service.AivpnService{}).Key(inboundId, id)
+	if err != nil {
+		jsonMsg(c, "tunnel: aivpn client key failed", err)
+		return
+	}
+	jsonObj(c, key, nil)
+}
+
+func (a *TunnelController) aivpnAddClient(c *gin.Context) {
+	var body aivpnClientRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		jsonMsg(c, "tunnel: invalid aivpn client body", err)
+		return
+	}
+	client, err := (&service.AivpnService{}).Add(body.InboundId, body.Name)
+	if err != nil {
+		jsonMsg(c, "tunnel: aivpn add client failed", err)
+		return
+	}
+	jsonObj(c, client, nil)
+}
+
+func (a *TunnelController) aivpnEnableClient(c *gin.Context) {
+	var body aivpnClientRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		jsonMsg(c, "tunnel: invalid aivpn client body", err)
+		return
+	}
+	if err := (&service.AivpnService{}).SetEnabled(body.InboundId, body.ClientId, body.Enabled); err != nil {
+		jsonMsg(c, "tunnel: aivpn enable client failed", err)
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "pages.inbounds.form.aivpn.toasts.clientEnabled"), nil)
+}
+
+func (a *TunnelController) aivpnDeleteClient(c *gin.Context) {
+	var body aivpnClientRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		jsonMsg(c, "tunnel: invalid aivpn client body", err)
+		return
+	}
+	if err := (&service.AivpnService{}).Remove(body.InboundId, body.ClientId); err != nil {
+		jsonMsg(c, "tunnel: aivpn delete client failed", err)
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "pages.inbounds.form.aivpn.toasts.clientDeleted"), nil)
+}
+
 func (a *TunnelController) openfluxStatus(c *gin.Context) {
 	st, err := a.svc.OpenfluxStatus()
 	if err != nil {
@@ -803,6 +1073,58 @@ func (a *TunnelController) anytlsDeleteBinary(c *gin.Context) {
 	jsonMsg(c, I18nWeb(c, "pages.tunnels.anytls.toasts.deleted"), nil)
 }
 
+// LUCX-HOOK: wgobfs core-level (Cores tab) handlers — one binary for both
+// the kernel-WG wgo proxies and the wgosocks exits.
+func (a *TunnelController) wgoCoreStatus(c *gin.Context) {
+	st, err := a.svc.WgoStatus()
+	if err != nil {
+		jsonMsg(c, "tunnel: wgo status failed", err)
+		return
+	}
+	jsonObj(c, st, nil)
+}
+
+func (a *TunnelController) wgoCoreLogs(c *gin.Context) {
+	lines := 200
+	if n := c.Query("lines"); n != "" {
+		if parsed, err := strconv.Atoi(n); err == nil && parsed > 0 {
+			lines = parsed
+		}
+	}
+	jsonObj(c, a.svc.WgoLogs(lines), nil)
+}
+
+func (a *TunnelController) wgoUploadBinary(c *gin.Context) {
+	dst := tunnel.Wgo.BinaryPath()
+	if err := saveCoreUpload(c, dst); err != nil {
+		logger.Warning("tunnel: save uploaded wgobfs binary failed:", err)
+		jsonMsg(c, "tunnel: wgo upload failed", err)
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "pages.tunnels.wgo.toasts.uploaded"), nil)
+}
+
+func (a *TunnelController) wgoDownloadBinary(c *gin.Context) {
+	var body tunnelDownloadRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		jsonMsg(c, "tunnel: invalid wgo download body", err)
+		return
+	}
+	if err := a.svc.DownloadWgoBinary(body.URL, body.SHA256); err != nil {
+		jsonMsg(c, "tunnel: wgo download failed", err)
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "pages.tunnels.wgo.toasts.downloaded"), nil)
+}
+
+func (a *TunnelController) wgoDeleteBinary(c *gin.Context) {
+	if err := a.svc.DeleteWgoBinary(); err != nil {
+		jsonMsg(c, "tunnel: wgo binary delete failed", err)
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "pages.tunnels.wgo.toasts.deleted"), nil)
+}
+
 func (a *TunnelController) tproxyStatus(c *gin.Context) {
 	st, err := a.svc.TproxyStatus()
 	if err != nil {
@@ -932,6 +1254,90 @@ func (a *TunnelController) mtproxyDeleteBinary(c *gin.Context) {
 		return
 	}
 	jsonMsg(c, I18nWeb(c, "pages.tunnels.mtproxy.toasts.deleted"), nil)
+}
+
+func (a *TunnelController) telemtStatus(c *gin.Context) {
+	st, err := a.svc.TelemtStatus()
+	if err != nil {
+		jsonMsg(c, "tunnel: telemt status failed", err)
+		return
+	}
+	jsonObj(c, st, nil)
+}
+
+func (a *TunnelController) telemtLogs(c *gin.Context) {
+	jsonObj(c, a.svc.TelemtLogs(tproxyLogLines(c)), nil)
+}
+
+func (a *TunnelController) telemtUploadBinary(c *gin.Context) {
+	if err := saveCoreUpload(c, tunnel.Telemt.BinaryPath()); err != nil {
+		jsonMsg(c, "tunnel: telemt upload failed", err)
+		return
+	}
+	jsonMsg(c, "telemt uploaded", nil)
+}
+
+func (a *TunnelController) telemtDownloadBinary(c *gin.Context) {
+	var body tunnelDownloadRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		jsonMsg(c, "tunnel: invalid telemt download body", err)
+		return
+	}
+	if err := a.svc.DownloadTelemtBinary(body.URL, body.SHA256); err != nil {
+		jsonMsg(c, "tunnel: telemt download failed", err)
+		return
+	}
+	jsonMsg(c, "telemt downloaded", nil)
+}
+
+func (a *TunnelController) telemtDeleteBinary(c *gin.Context) {
+	if err := a.svc.DeleteTelemtBinary(); err != nil {
+		jsonMsg(c, "tunnel: telemt binary delete failed", err)
+		return
+	}
+	jsonMsg(c, "telemt deleted", nil)
+}
+
+func (a *TunnelController) mtprotoZigStatus(c *gin.Context) {
+	st, err := a.svc.MtprotoZigStatus()
+	if err != nil {
+		jsonMsg(c, "tunnel: mtproto-zig status failed", err)
+		return
+	}
+	jsonObj(c, st, nil)
+}
+
+func (a *TunnelController) mtprotoZigLogs(c *gin.Context) {
+	jsonObj(c, a.svc.MtprotoZigLogs(tproxyLogLines(c)), nil)
+}
+
+func (a *TunnelController) mtprotoZigUploadBinary(c *gin.Context) {
+	if err := saveCoreUpload(c, tunnel.MtprotoZig.BinaryPath()); err != nil {
+		jsonMsg(c, "tunnel: mtproto-zig upload failed", err)
+		return
+	}
+	jsonMsg(c, "mtproto-zig uploaded", nil)
+}
+
+func (a *TunnelController) mtprotoZigDownloadBinary(c *gin.Context) {
+	var body tunnelDownloadRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		jsonMsg(c, "tunnel: invalid mtproto-zig download body", err)
+		return
+	}
+	if err := a.svc.DownloadMtprotoZigBinary(body.URL, body.SHA256); err != nil {
+		jsonMsg(c, "tunnel: mtproto-zig download failed", err)
+		return
+	}
+	jsonMsg(c, "mtproto-zig downloaded", nil)
+}
+
+func (a *TunnelController) mtprotoZigDeleteBinary(c *gin.Context) {
+	if err := a.svc.DeleteMtprotoZigBinary(); err != nil {
+		jsonMsg(c, "tunnel: mtproto-zig binary delete failed", err)
+		return
+	}
+	jsonMsg(c, "mtproto-zig deleted", nil)
 }
 
 func tproxyLogLines(c *gin.Context) int {

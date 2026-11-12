@@ -4,13 +4,91 @@ Extracted from AGENTS.md. This file is project law.
 
 ---
 
-### Pattern 1aw: acme.sh `tcp port 80 is already used` with Cover on — FIXED (unreleased)
+### Pattern 1be: aivpn server runs, clients added, QR button dead — FIXED (lucx.357)
+
+- **Symptom (Hastelo, 10.11.2026):** after the masks fix (Pattern 1bd) the server is up and clients add, but the `QR code` button in the inbound client table is disabled — no `aivpn://` key in any row; the reprint path logs "connection key not present in client payload".
+- **Cause:** the pinned v1.2.0 (`InitialV2`) management API returns the PSK-stripped `ClientView` for list / single-GET / add — `id, name, vpn_ip, enabled, stats…`, **no** `connection_key`. The minted key lives behind `GET /api/v1/clients/:id/connection-key` → `{"connection_key": "aivpn://<b64urljson>"}` (`mgmt_service/client_ops.rs::connection_key` — `{s,k,p,i,n` + `sk`/`mop` parity fields). The panel read only the client payload.
+- **Fix (lucx.357):** `AivpnAPI.ClientKey` calls the endpoint first, legacypayload scan stays the fallback; panel relays `GET /panel/api/tunnel/aivpn/clientKey?inboundId=…&clientId=…` (`AivpnService.Key`); the inbound-form QR button fetches on click and opens the modal — no pre-gating on `row.key` (list rows stay key-less forever in v1.2.0).
+- **Healing without update:** none in the panel — grab the key by hand: `curl -so /dev/null --unix-socket /usr/local/x-ui/bin/tunnel/aivpn-data/mgmt.sock http://aivpn/api/v1/clients/<id>/connection-key | head -c400` (jq `.connection_key`).
+- **Not this:** a key fetch that fails with `public_endpoint_not_configured` — server.json has no `server_ip` and the core has no public endpoint to stamp into the key; set the inbound's "Public host" field. A modal that opens but shows "qrTooLarge" — keys are ~400-600 chars, inside the 2953 limit; that would mean a corrupted upstream response.
+- **Lesson:** a breaking core release that "strips secrets from views" moves the print path to a dedicated endpoint — audit every panel consumer of that view after a pin bump, not just the wire format (same lesson as the OLC2 bump, Pattern 1o).
+
+---
+
+### Pattern 1bd: aivpn `No masks found in /var/lib/aivpn/masks`, exit 1 loop — FIXED (lucx.356)
+
+- **Symptom (live log, 10.11.2026):** `tunnel: aivpn | ERROR aivpn_server::bootstrap: Failed to create server: Session error: No masks found in "/var/lib/aivpn/masks" — place mask JSON files there before starting the server`; the sidecar warns first (`server will not accept connections until masks are recorded`) then exits 1 on every reconcile tick.
+- **Cause:** aivpn-server (pinned v1.2.0) refuses to boot without at least one `MaskProfile` JSON in its `mask_dir` (default `/var/lib/aivpn/masks`; also `--mask-dir` / `AIVPN_MASK_DIR`). The masks are the anti-DPI traffic-shaping profiles (QUIC, WebRTC, VK, WhatsApp…); the server signs, rotates and hands them to clients itself — clients never need their own. Upstream's `install-server.sh` copies `assets/masks/` or downloads `masks.tar.gz` from the release; LucX packed the *binary* but never shipped the *masks*.
+- **Fix (lucx.356):** upstream masks vendored at `third_party/sidecars/masks/*.json` (from the pinned v1.2.0 release's `masks.tar.gz`); every panel tarball packs them at `bin/tunnel/aivpn-masks/` (`bin/pack-sidecars.sh` + `bin/sourcecraft-release.sh` + `DockerInit.sh`). The panel renders `mask_dir` → `bin/tunnel/aivpn-masks` in `server.json`; with no mask present `AivpnInstanceFromInbound` gates the instance DOWN with a warning (no crash-loop; re-enables on the next tick once masks appear).
+- **Healing an already-hit host without update:** `mkdir -p /var/lib/aivpn/masks && curl -L <pinned-release>/masks.tar.gz | tar zx -C /var/lib/aivpn/masks` then wait one tick. With the update: nothing — the tarball carries the masks and the instance comes up on its own.
+- **Not this:** `bind: address already in use` on the UDP port (port busy, different line); "Registered clients: 0" before the warn is normal for a fresh core.
+- **Lesson:** a sidecar pin bump that requires bundled data files is a release-packing change, not "the operator should mkdir" (same lesson as Pattern 1aa). Refresh rule: bumping the aivpn pin → overwrite `third_party/sidecars/masks/` with the new release's `masks.tar.gz`.
+
+---
+
+### Pattern 1bc: routed anytls connects but the tunnel dies mid-TLS (curl rc=35) — FIXED (lucx.303)
+
+- **Symptom (VladufQa, 16.10.2026, lucx.302):** clients connect "без xray", dead "с xray". End-to-end curl through the chain gave `SSL_CONNECT_ERROR` (35) instantly, TCP reached xray (the hidden socks on 40349 was up and listening, the bridge relay was alive).
+- **Cause:** the tproxy pattern's bridge (`serveTproxySocksBridge` on 23990) dials the hidden socks with **noauth** (`proxy.SOCKS5(..., nil, ...)`), while `injectAnytlsEgress` generated the hidden inbound with `auth: "password"` (a lucx.190 inherited flag) — the socks rejected every bridge handshake and the forwarded stream died silently. Plus the sandbox boundary set had **no CAP_KILL**: a root panel could not stop/signal a sidecar running under the bridge uid (`stop before restart failed: operation not permitted`, then `start: already running` each tick, config changes never applied until a full service restart).
+- **Fix (lucx.303):** (a) anytls hidden socks is generated noauth — the bridge is its only dialer (naive keeps auth: its dialer passes credentials); the inject test pins the noauth settings; (b) `CAP_KILL` in the `CapabilityBoundingSet` of the three unit files and both drop-in generators, so the panel can stop/signals/sweep foreign-uid sidecars.
+- **Diagnosing a mid-chain death:** `runuser -u lucx-mtproxy -- curl -sm8 https://api.ipify.org` — rc=35 (TLS died) = the socks/handshake layer; a timeout = the outbound chain; an empty reply = the bridge/handshake. Compare with the same curl as root (direct egress).
+- **Healing without update:** none for the auth mismatch (the hidden socks needs regeneration) — wait for the update; the CAP_KILL part heals on panel update alone.
+- **Not this:** `bind: address already in use` right after a panel update — the old (foreign-uid) sidecar survived the panel restart in the same second; systemd clears the whole cgroup on service restart, so that loop is one-shot.
+- **Lesson:** two components that share a private listener must agree on the listener's authentication mode — audit both sides of every loopback bridge, not just the firewall rule.
+
+### Pattern 1bb: two routed anytls inbounds refuse the whole Xray config ("both bind") — FIXED (lucx.302)
+
+- **Symptom (VladufQa, 16.10.2026, after lucx.301):** `xray config refused: inbounds "in-8444-tcp" and "in-8443-tcp" both bind 127.0.0.1:32779 (tcp)` on every restart — the whole Xray down, every protocol offline; the second anytls crashes `exit status 1` each tick.
+- **Cause:** `mtproto.FreeLocalPort()` returns freshly freed ephemeral ports; two sidecars saved back to back often get THE SAME egress port, and no normalizer excluded the already-taken ones. `injectSocksEgress` guarded tags only (the tproxy injector had the port check; the shared one did not) → two hidden socks inbounds on one bind → Xray refuses the entire config. The `exit status 1` crash is usually the sidecar's own bind/log error on that box — read the `anytls-N |` log line.
+- **Fix (lucx.302):** (a) `injectSocksEgress` skips the second hidden socks with a warn when the bind is taken — Xray always boots; (b) both normalizers (`normalizeSidecarXrayPort` + `normalizeMtprotoXrayPort`) exclude other sidecars' `routeXrayPort` and re-allocate a stored collision (backend plumbing — Rule 0 untouched); (c) the uid-bridge dial target is the lowest-id routed anytls, deterministic.
+- **Healing without update:** disable «Route through Xray» on one of the two anytls inbounds — Xray comes back. With the update: re-save both; the ports diverge and both stay routed (one shared bridge).
+- **Not this:** `anytls process exited: exit status 1` with a single routed anytls — that is the sidecar's own startup fatal (bind busy by a foreign listener, cert load) — read its log line, not the Xray refactor.
+- **Lesson:** allocation functions that probe-and-release ephemeral ports must exclude the pool of ports the same program hands out elsewhere; probe-free allocations collide the second time they run in a row.
+
+### Pattern 1ba: anytls "Route through Xray" silently does nothing — FIXED (lucx.301)
+
+- **Symptom (VladufQa, 16.10.2026):** anytls inbound has `routeThroughXray: true` + `routeXrayPort`, the process runs, TLS through the nginx SNI-front works, but egress never goes via Xray — it exits directly from the host IP. No error anywhere.
+- **Cause:** the shared bridge REDIRECT matches `--uid-owner lucx-mtproxy` (999), while the anytls child runs with the panel's own (root) credentials — the rule never matches any of its egress. Broken since the feature shipped (lucx.273); invisible while direct egress still works for the client's purpose.
+- **Healing an already-hit host on the old unit (no CAP_CHOWN):** the panel warns once and keeps running as root — direct egress. Update the panel (or re-run update.sh) so the unit/drop-in gains CAP_CHOWN, then wait a reconcile tick or save the inbound.
+- **Fix (lucx.301):** routed anytls runs under the bridge uid: `Instance.RunUid` (fingerprint member) + `Proc.SetRunUid` + `syscall.Credential`; cert/key are passed as `anytls-N-cert.pem/-key.pem` ExtraFiles copies the panel chowns (CAP_CHOWN in the bounding set); the password goes on the argv instead of the file the uid could not read. Remove stops the copies. Fallback chain: no bridge user or chown failure → root + direct egress + warn-once (no per-tick flood — the lucx.300 lesson).
+- **Not this:** qWDTT routeThroughXray (a kernel-TUN policy route, different mechanism and it works); `routeXrayPort` listener missing → check Xray regenerated with the hidden socks inbound.
+- **Lesson:** a uid-scoped firewall bridge only works if the routed process actually runs under that uid — audit the process credentials together with the rule, not just the rule.
+
+### Pattern 1az: reconcile floods `chmod ... operation not permitted` on every tick — FIXED (lucx.300)
+
+
+- **Symptom (Chingiz, 15.10.2026):** every ~10 s the panel log warns `tunnel: reconcile cover-2: tunnel: make bin/caddy-naive-linux-amd64 executable: chmod bin/caddy-naive-linux-amd64: operation not permitted`; the cover/naive sidecar never starts. Reinstalling over the top once stopped the flood.
+- **Cause:** two defects stacked. (1) The GitHub release tarball is packed by Actions as user `runner`, so `tar zxvf x-ui-linux-*.tar.gz` as root keeps GNU `--same-owner` and every `bin/*` lands owned by the foreign runner uid — `install.sh` never normalized it (update.sh did: its "Changing owner" `chown -R root:root ${xui_folder}`, which is exactly why a reinstall healed the host). (2) lucx.293 narrowed the unit bounding set to `DAC_OVERRIDE NET_ADMIN NET_BIND_SERVICE NET_RAW SETUID SETGID` — no `CAP_FOWNER` — and chmod(2) needs owner-match or CAP_FOWNER specifically; CAP_DAC_OVERRIDE does not cover mode changes. `Manager.start` chmod'ed the binary unconditionally before every start, treated EPERM as fatal, and the 10 s tunnel_job cron retried forever: flood + sidecar down.
+- **Fix (lucx.300):** (a) `Manager.start` chmods only when the binary has no exec bit at all (`Perm()&0o111`); an already-executable foreign-owned binary starts without any chmod (test `TestEnsureExecutable`); (b) `install.sh` chowns the extracted tree root (`chown -R root:root .` after the bin restore, before first start). update.sh already had the equivalent, so updates self-heal.
+- **Healing an already-hit host without update:** `chown root:root /usr/local/x-ui/bin/*` — or just update: with (a) the already-executable binaries start once the new panel is live, no chown needed.
+- **Not this:** chmod on files the panel itself created (owner = panel uid — fine); `chattr +i`/append-only binaries, which EPERM even full-cap root — check `lsattr`. A foreign :80 owner or a missing binary produce different messages.
+- **Lesson:** the sandbox subtracts capabilities the panel still uses transitively. Any runtime chmod must be skippable, and anything the shell extracts must be root-owned before the sandboxed unit touches it — ownership is part of the install contract now.
+
+### Pattern 1ay: acme.sh `tcp port 80 is already used` with Cover on — FIXED (lucx.298)
 
 - **Symptom:** `x-ui` SSL issue or acme.sh cron renew fails with `tcp port 80 is already used by caddy-naive-lin`, or a cert issued before Cover was enabled stops renewing.
 - **Cause:** the LucX Caddy owns :80, and acme.sh standalone wanted :80 itself.
 - **Fix:** acme.sh listens on `127.0.0.1:<port>` (`/etc/x-ui/acme-http-port`, default 29380). Caddy :80 relays `/.well-known/acme-challenge/*` there. With :80 free, the `bin/lucx-acme.sh` pre-hook runs a temporary socat :80 -> port, and the post-hook stops it.
 - **Check:** `bash /usr/local/x-ui/bin/lucx-acme.sh port`; `grep -E 'HTTPPort|LocalAddress|PreHook|PostHook' ~/.acme.sh/<domain>*/<domain>.conf`; `grep -A1 acme-challenge /usr/local/x-ui/bin/tunnel/*.caddyfile`; `curl -i http://<domain>/.well-known/acme-challenge/x` gives 502 while Cover is up (relay alive, acme.sh idle), not 301.
 - **Not this:** a foreign :80 owner (nginx/apache) — the prompt and pre-hook name it and stop. Masking on: nothing listens on :80, so check UFW for TCP 80.
+- Renumbered from 1aw in PR #134: main already had 1aw (lucx.296). Since lucx.298 the dashboard shows the module version (`/sys/module/amneziawg/version`), not the marker SHA — see progress lucx.298.
+
+### Pattern 1ax: masking on but `ufw status` shows every port allow — FIXED (lucx.297)
+
+- **Symptom (Malderin, 14.10.2026, lucx.295):** after applying masking (hide panel), `ufw status` lists all inbound ports and the panel port as ALLOW; Revert→Apply does not change it.
+- **Cause:** the UFW allow/close lists were built from "selected" rows only. Inbound protocols hidden **inside the site** (`req.Inside`) and **hideNaive** rows are not in `selected`, so their public ports stayed (and were re-added by) GatewayUFWAllow, and GatewayUFWClose skipped them. Deterministic, so re-apply reproduces it. The delete syntax `ufw --force delete allow <port>/<proto>` is valid — canonical ufw 0.36.2 strips `--force` before command parsing (checked upstream parser source).
+- **Fix:** GatewayUFWAllow/GatewayUFWClose take a `moved` set (selected maskables + inside + hideNaive), mirror of the snapshot loop's move condition in GatewayApply. Hidden panel/sub close rules now include the `/udp` half. lucx.299: ApplyUFW also sweeps `ufw show added` and deletes every remaining incoming-allow rule whose target port is closed — a manual bare `ufw allow <port>` is one proto-less entry (the `port/tcp`+`port/udp` deletes report it non-existent), full-syntax rules (`from … to any port X`) never match simple deletes. Ranges (`p1:p2`), outbound rules, app profiles stay.
+- **Correct end state:** SSH (+custom sshd port), 80, 443 (the mask facade), panel/sub only when not hidden, and ports of inbounds NOT masked. 443 stays open by design when the gateway itself is the facade.
+- **If something still leaks:** `ufw show added` prints exact rules; since lucx.299 single-port rules in any syntax are swept on Apply. Left alone: port ranges containing the port, and foreign firewalls (firewalld/shorewall).
+- **Healing:** update, restart, revert then apply masking again.
+
+### Pattern 1aw: sidecar traffic counted twice when routeThroughXray is on — FIXED (lucx.296)
+
+- **Symptom:** panel inbound totals grow far faster than real usage (2 TB class over time) on tunnel-sidecar inbounds. AWG itself is NOT affected — `awg_job.go` already skips the kernel rollup for routed inbounds (Xray meters the TUN with the same tag).
+- **Cause:** `collectAnytlsTraffic` / `collectOlcrtcTraffic` / `collectQwdttTraffic` / `collectTproxyTraffic` committed inbound rollups for routed inbounds too. The Xray bridge injected by `injectSocksEgress` / `injectQwdttEgress` carries the same tag, so every bridged byte was added twice. qWDTT defaults `routeThroughXray: true` (qwdtt.go DefaultQwdttConfig), so it doubled out of the box.
+- **Fix:** routedTags guard in all four collectors; `commitSidecarScrape` takes a routedTags map, mirroring the naive/mieru pattern. Per-client rows (TrustTunnelSoleClient) are kept: the bridge cannot attribute to users.
+- **Known limit:** non-routed olcrtc/tproxy still meter from `/proc/<pid>/io` (rchar/wchar — every read+write syscall, ~2x network bytes + log I/O). See the shortcut comment in sidecar_stats.go.
+- **Distinguishing a counting bug from a real loop:** compare the panel with `awg show <iface> transfer` (kernel truth), then with `/proc/net/dev` / vnstat deltas: panel ≫ NIC = accounting bug; NIC ≈ panel on an idle tunnel = real loop (check `ip -s link show awgN` twice, 60 s apart).
 
 ### Pattern 1av: mtproxy `Operation not permitted` / masking locks the panel out — FIXED (lucx.293)
 
@@ -116,8 +194,8 @@ Extracted from AGENTS.md. This file is project law.
 
 ### Pattern 1ah: CSQTT “password already assigned to another Device ID” after delete/recreate — FIXED (lucx.243)
 - **Symptom (zk0xch, 17.09.2026):** first inbound + iPhone import works. Delete inbound, create again, import — client says the password belongs to another device_id. New password in the card does not help. Restoring the *first* device_id on the phone works with any password.
-- **Cause:** CSQTT is a singleton key (`csqtt`). `Remove` stopped the process but `removeManagedFiles` skipped singleton data dirs. `csqtt.db` kept `main_device_id`. `--password` overwrites the password; empty `--device-id` does **not** clear the stored id. iOS re-import mints a new device_id.
-- **Fix:** wipe `csqtt-data` on inbound delete. Stamp the panel password; a change drops `csqtt.db`. Optional Device ID field → `csqtt --device-id`.
+- **Cause:** CSQTT is a singleton key (`csqtt`). `Remove` stopped the process but `removeManagedFiles` skipped singleton data dirs. `csqtt.db` kept `main_device_id`. `--password` overwrites the password; the (pre-2.5.0) `--device-id` flag did not clear the stored id. iOS re-import mints a new device_id.
+- **Fix:** wipe `csqtt-data` on inbound delete. Stamp the panel password; a change drops `csqtt.db`. Core 2.5.0 (lucx.308) removed the `--device-id` CLI flag — device binding is client-minted/server-side now; the DeviceID form field is gone.
 - **Healing without update:** stop the inbound, `rm -rf /usr/local/x-ui/bin/tunnel/csqtt-data`, save/enable again, import once.
 - **Lesson:** a sidecar SQLite bind is part of inbound identity. Singleton key + “keep files” means delete is not delete.
 
@@ -266,3 +344,11 @@ Extracted from AGENTS.md. This file is project law.
 - **Fix (lucx.192):** accounting must not terminate INPUT. lucx.192 first jumped to empty `LUCX_ANYTLS_ACCT` (UFW works, but iptables-nft often leaves jump counters at 0 → panel traffic/online stay empty). Now `-j MARK --set-xmark 0x0/0x0` (non-terminating, counters increment). Sweep leftover `-j RETURN` and `-j LUCX_ANYTLS_ACCT`.
 - **Healing without lucx.192:** `iptables -I INPUT 1 -p tcp --dport 8555 -j ACCEPT` (and 8443 if those RETURN rules exist). Deleting RETURN is pointless — scrape re-inserts until the update. Or leave UFW off.
 - **Lesson:** accounting rules must not change filter policy. `-j RETURN` on a builtin chain is not a no-op when policy is DROP. Jump-to-empty-chain is also not a counter: use a non-terminating target (`MARK 0/0`).
+
+### Pattern 1ag: qWDTT floods the panel log with INFO lines — FIXED (lucx.345)
+
+- **Symptom (Orly, 06.11.2026):** every qWDTT session spams the panel log/journald with `tunnel: qwdtt | [Stats]…`, `[RAW]…`, one line per connection; real `[ERR]` lines drown. Operator asked to keep only errors.
+- **Cause:** the core has no log-level flag (verified SpaceNeuroX v1.4.4 `a296c57e` and master: flags are only `-listen/-wg-port/-config-dir/-password/-dns/-listen-raw/-listen-direct`); the panel echoed every sidecar line at Info from `procLogWriter`.
+- **Fix:** per-core echo filter in `procLogWriter` (`procEchoFilter` in `process.go`): the manager key `qwdtt` echoes only lines containing `[ERR]` or `panic:`; every other core echoes everything as before. The ring (Logs viewer, `GET /panel/api/tunnel/qwdtt/logs`) and the `3xui.log` file backend (always DEBUG) keep all lines. Panel lifecycle lines (`started/stopped/config changed/exited`) are separate logger calls and stay.
+- **Edge:** `log.Fatalf` startup lines carry no `[ERR]` tag, but the process exit is always logged at Error level; error-ish lines without the tag (`[RAW] Ошибка записи в TUN`) land in the ring only. If a future qwdtt release renames the `[ERR]` tag, errors go quiet in journald — check the Logs viewer first.
+- **Lesson:** filter at the panel echo, not in the core — third-party cores log however they log and the panel is the only choke point.

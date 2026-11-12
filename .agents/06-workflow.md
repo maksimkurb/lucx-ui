@@ -24,14 +24,25 @@ Extracted from AGENTS.md. This file is project law.
 9. VERIFY  → Check `sudo systemctl status x-ui`, check server logs
 10. COMMIT → `git add` specific files, `git commit` with descriptive message (Russian)
 11. STATUS → Output `git status` and `git log --oneline -15` after commits
-11.5. CHECK PR/ISSUES → BEFORE every push ALWAYS check open PRs and issues:
-             `gh pr list --repo maksimkurb/lucx-ui --state open`
-             `gh issue list --repo maksimkurb/lucx-ui --state open`
-             If there are unhandled PRs (not yours) or issues — do NOT push
-             immediately. Tell the user: which PRs/issues are open, by whom, and
-             offer: (a) review/merge the PR first, (b) fix the issue first,
-             (c) push after. Do not silently push over someone else's PR —
-             you can overwrite or break their work.
+11.5. CHECK PR/ISSUES/ADVISORIES → BEFORE every push ALWAYS check open PRs, issues,
+              and private advisories (GitHub Private vulnerability reporting):
+              `gh pr list --repo AlexeyLCP/lucx-ui --state open`
+              `gh issue list --repo AlexeyLCP/lucx-ui --state open`
+              `gh api repos/AlexeyLCP/lucx-ui/security-advisories --jq '[.[] | select(.state != "published")]'`
+              If there are unhandled PRs (not yours) or issues — do NOT push
+              immediately. Tell the user: which PRs/issues are open, by whom, and
+              offer: (a) review/merge the PR first, (b) fix the issue first,
+              (c) push after. Do not silently push over someone else's PR —
+              you can overwrite or break their work.
+              An open (non-`published`) private advisory does NOT hard-block the
+              push (the fix itself must be pushable) — but the agent MUST surface
+              it to the user before pushing: GHSA id, state, summary; and the fix
+              for such an advisory takes priority over feature work.
+              BEFORE tagging a release the gate is strict: see "REQUIRED before
+              tagging — private advisories" in the Release section (step 0b).
+              Never leak advisory details into public commits, issues, PRs, or
+              release notes until GitHub publishes the advisory (the GHSA id and
+              "we publish an advisory" are fine).
 12. DOCS   → ALWAYS keep docs/progress.md and .agents/ up to date. Every commit —
              a new entry in docs/progress.md (what was done, which lucxVersion, which
              files, which tests). On architecture / rules / env / debug changes —
@@ -99,6 +110,15 @@ git fetch gh --tags
 git log --oneline v3.7.0-lucx.$((N-1))..HEAD
 # In notes and docs/progress.md — EVERY non-docs commit from that list, not only lucx.N.
 # Empty list except the previous release’s docs tail — OK.
+
+# 0b. REQUIRED before tagging — private advisories (GitHub PVR), rule of 2026-10-25:
+gh api repos/AlexeyLCP/lucx-ui/security-advisories --jq '[.[] | select(.state != "published")]'
+#    Any output = an open private report → tag ONLY with the fix for it
+#    included in THIS release (fix commits get in before the tag; the
+#    advisory is published after the fixed release ships), or after the
+#    reporter explicitly agreed to postpone. NEVER tag a release that
+#    silently ships an unpatched private report — the release page and
+#    notes must not mention advisory details either.
 
 # 1. Wait for green CI on main, then tag — Release workflow
 #    will build the tarball and publish the stable release:
@@ -194,7 +214,7 @@ x-ui-linux-{amd64,arm64}.tar.gz → x-ui/
             amd64 unpacks third_party gz; arm64 from bin/pack-sidecars.sh + tproxy in release.yml.
 ```
 
-Geo is not in the GitHub panel tarball. `install.sh` / `update.sh` fetch Loyalsoldier + IR/RU/ROSCOM **before** panel start if the file is missing (never fatal). SourceCraft unpacks `x-ui-geo.tar.gz` for missing names only. Xray `geodata.assets` cron (`0 4 * * *`) refreshes all 8 on a live panel.
+Geo is not in the GitHub panel tarball. `install.sh` / `update.sh` fetch Loyalsoldier + IR/RU/ROSCOM/GA **before** panel start if the file is missing (never fatal). SourceCraft unpacks `x-ui-geo.tar.gz` for missing names only. Xray `geodata.assets` cron (`0 4 * * *`) refreshes all 10 on a live panel.
 
 Tunnel sidecars (gzipped) live in `third_party/sidecars/linux-amd64/`. GitHub tarball includes unpacked binaries + `bin/lucx-pins.txt`. SourceCraft stays SLIM amd64 (100 MB cap) and adds `x-ui-sidecars-amd64.tar.gz` (split to `sidecars/*.gz` if over 100 MB).
 

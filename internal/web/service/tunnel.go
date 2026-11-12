@@ -350,6 +350,8 @@ func (s *TunnelService) Reconcile() {
 	s.reconcileOlcrtcInbounds()
 	s.reconcileQwdttInbound()
 	s.reconcileCsqttInbound()
+	s.reconcileMasterdnsInbound()
+	s.reconcileAivpnInbound()
 	s.reconcileOpenfluxInbounds()
 	s.reconcileMieruInbounds()
 	s.reconcileTrustTunnelInbounds()
@@ -357,6 +359,7 @@ func (s *TunnelService) Reconcile() {
 	s.reconcileTproxyInbounds()
 	s.reconcileCoverInbounds()
 	s.reconcileGatewayInbounds()
+	s.reconcileWgosocksInbounds()
 }
 
 // tunnelBlobMigrated reports whether the legacy settings blob carries the
@@ -598,6 +601,125 @@ func (s *TunnelService) reconcileCsqttInbound() {
 	tunnel.EnsureCsqttDirect()
 }
 
+// reconcileAivpnInbound drives the single AIVPN instance from its local
+// inbound (csqtt pattern; no OS-level routing — the core installs its own
+// TUN + NAT). Exactly one enabled inbound wins the process.
+func (s *TunnelService) reconcileAivpnInbound() {
+	inbounds, err := s.inboundService.GetAllInbounds()
+	if err != nil {
+		logger.Warning("tunnel: aivpn inbound list failed:", err)
+		return
+	}
+	var one *model.Inbound
+	for _, ib := range inbounds {
+		if ib == nil || ib.Protocol != model.Aivpn || ib.NodeID != nil {
+			continue
+		}
+		if one == nil || (ib.Enable && !one.Enable) {
+			one = ib
+		}
+	}
+	if one == nil {
+		_ = tunnel.GetManager().Stop(tunnel.Aivpn)
+		return
+	}
+	inst, ok := tunnel.AivpnInstanceFromInbound(one)
+	if !ok {
+		return
+	}
+	if err := tunnel.GetManager().Ensure(inst); err != nil {
+		logger.Warning("tunnel: aivpn inbound reconcile failed:", err)
+	}
+}
+
+// AivpnInbound returns the local (host) AIVPN inbound for the management
+// surface, or nil.
+func (s *TunnelService) AivpnInbound(id int) *model.Inbound {
+	inbounds, err := s.inboundService.GetAllInbounds()
+	if err != nil {
+		return nil
+	}
+	for _, ib := range inbounds {
+		if ib != nil && ib.Protocol == model.Aivpn && ib.NodeID == nil && (id <= 0 || ib.Id == id) && ib.Enable {
+			return ib
+		}
+	}
+	return nil
+}
+
+// --- AIVPN core (inbound-only) ----------------------------------------------
+
+// AivpnRunning reports whether the single AIVPN instance process is alive.
+func (s *TunnelService) AivpnRunning() bool {
+	return tunnel.GetManager().IsRunning(tunnel.Aivpn)
+}
+
+func (s *TunnelService) AivpnStatus() (MieruStatus, error) {
+	mgr := tunnel.GetManager()
+	bin := tunnel.Aivpn.BinaryPath()
+	info, statErr := os.Stat(bin)
+	return MieruStatus{
+		Core:         string(tunnel.Aivpn),
+		DisplayName:  tunnel.Aivpn.DisplayName(),
+		BinaryExists: statErr == nil && !info.IsDir(),
+		BinaryPath:   bin,
+		Probe:        mgr.StatusOf(tunnel.Instance{Core: tunnel.Aivpn, Key: tunnel.AivpnKey}),
+		LastLog:      mgr.LastLog(tunnel.Aivpn),
+	}, nil
+}
+
+func (s *TunnelService) AivpnLogs(lines int) []string {
+	if lines <= 0 {
+		lines = 200
+	}
+	return tunnel.GetManager().Logs(tunnel.Aivpn, lines)
+}
+
+func (s *TunnelService) DeleteAivpnBinary() error {
+	if err := tunnel.GetManager().Stop(tunnel.Aivpn); err != nil {
+		logger.Warning("tunnel: stop before aivpn binary delete failed:", err)
+	}
+	if err := os.Remove(tunnel.Aivpn.BinaryPath()); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func (s *TunnelService) DownloadAivpnBinary(downloadURL, wantSHA256 string) error {
+	return s.downloadBinaryTo(tunnel.Aivpn.BinaryPath(), downloadURL, wantSHA256)
+}
+
+// reconcileMasterdnsInbound drives the single-credential MasterDNSVPN
+// instance from its local inbound (csqtt pattern; no OS-level routing — the
+// core's egress is its own SOCKS upstream).
+func (s *TunnelService) reconcileMasterdnsInbound() {
+	inbounds, err := s.inboundService.GetAllInbounds()
+	if err != nil {
+		logger.Warning("tunnel: masterdns inbound list failed:", err)
+		return
+	}
+	var one *model.Inbound
+	for _, ib := range inbounds {
+		if ib == nil || ib.Protocol != model.Masterdns || ib.NodeID != nil {
+			continue
+		}
+		if one == nil || (ib.Enable && !one.Enable) {
+			one = ib
+		}
+	}
+	if one == nil {
+		_ = tunnel.GetManager().Stop(tunnel.Masterdns)
+		return
+	}
+	inst, ok := tunnel.MasterdnsInstanceFromInbound(one)
+	if !ok {
+		return
+	}
+	if err := tunnel.GetManager().Ensure(inst); err != nil {
+		logger.Warning("tunnel: masterdns inbound reconcile failed:", err)
+	}
+}
+
 // reconcileMieruInbounds Ensures every mieru inbound sidecar and stops
 // orphans. mieru is inbound-only (lucx.117+): there is no legacy settings
 // blob, so with zero inbounds the wanted set is empty and every mieru-* key
@@ -627,6 +749,7 @@ func (s *TunnelService) reconcileMieruInbounds() {
 // orphans. Inbound-only like mieru: zero inbounds sweeps every anytls-* key.
 func (s *TunnelService) reconcileAnytlsInbounds() {
 	panelCert, panelKey := panelCertFiles()
+	secret, _ := s.settingService.GetSecret()
 	inbounds, err := s.inboundService.GetAllInbounds()
 	if err != nil {
 		logger.Warning("tunnel: anytls inbound list failed:", err)
@@ -634,18 +757,25 @@ func (s *TunnelService) reconcileAnytlsInbounds() {
 	}
 	var want []tunnel.Instance
 	routedPort := 0
+	routedWinnerId := 0
 	for _, ib := range inbounds {
 		if ib == nil || ib.Protocol != model.Anytls || ib.NodeID != nil {
 			continue
 		}
-		inst, ok := tunnel.AnytlsInstanceFromInbound(ib, panelCert, panelKey)
+		inst, ok := tunnel.AnytlsInstanceFromInbound(ib, secret, panelCert, panelKey)
 		if !ok {
 			continue
 		}
 		want = append(want, inst)
 		if ib.Enable {
 			if cfg, cfgOK := tunnel.AnytlsConfigFromInbound(ib); cfgOK && cfg.RouteThroughXray && cfg.RouteXrayPort > 0 {
-				routedPort = cfg.RouteXrayPort
+				// One uid REDIRECT + one bridge listener serve every routed
+				// AnyTLS; dial target must be deterministic, so the lowest id
+				// wins and the others' egress rides its hidden inbound.
+				if routedWinnerId == 0 || ib.Id < routedWinnerId {
+					routedWinnerId = ib.Id
+					routedPort = cfg.RouteXrayPort
+				}
 			}
 		}
 	}
@@ -750,6 +880,29 @@ func (s *TunnelService) reconcileGatewayInbounds() {
 		want = append(want, inst)
 	}
 	tunnel.GetManager().ReconcileGateway(want)
+}
+
+// reconcileWgosocksInbounds Ensures every wgosocks SOCKS5-exit inbound and
+// stops orphans. Inbound-only like mieru: zero inbounds sweeps every
+// wgosocks-* key.
+func (s *TunnelService) reconcileWgosocksInbounds() {
+	inbounds, err := s.inboundService.GetAllInbounds()
+	if err != nil {
+		logger.Warning("tunnel: wgosocks inbound list failed:", err)
+		return
+	}
+	var want []tunnel.Instance
+	for _, ib := range inbounds {
+		if ib == nil || ib.Protocol != model.Wgosocks || ib.NodeID != nil {
+			continue
+		}
+		inst, ok := tunnel.WgosocksInstanceFromInbound(ib)
+		if !ok {
+			continue
+		}
+		want = append(want, inst)
+	}
+	tunnel.GetManager().ReconcileWgosocks(want)
 }
 
 // panelCertFiles reads the panel ACME certificate paths from settings (the
@@ -1578,6 +1731,43 @@ func (s *TunnelService) DownloadCsqttBinary(downloadURL, wantSHA256 string) erro
 	return s.downloadBinaryTo(tunnel.Csqtt.BinaryPath(), downloadURL, wantSHA256)
 }
 
+// --- MasterDNSVPN core (inbound-only) ---------------------------------------
+
+func (s *TunnelService) MasterdnsStatus() (MieruStatus, error) {
+	mgr := tunnel.GetManager()
+	bin := tunnel.Masterdns.BinaryPath()
+	info, statErr := os.Stat(bin)
+	return MieruStatus{
+		Core:         string(tunnel.Masterdns),
+		DisplayName:  tunnel.Masterdns.DisplayName(),
+		BinaryExists: statErr == nil && !info.IsDir(),
+		BinaryPath:   bin,
+		Probe:        mgr.StatusOf(tunnel.Instance{Core: tunnel.Masterdns, Key: tunnel.MasterdnsKey}),
+		LastLog:      mgr.LastLog(tunnel.Masterdns),
+	}, nil
+}
+
+func (s *TunnelService) MasterdnsLogs(lines int) []string {
+	if lines <= 0 {
+		lines = 200
+	}
+	return tunnel.GetManager().Logs(tunnel.Masterdns, lines)
+}
+
+func (s *TunnelService) DeleteMasterdnsBinary() error {
+	if err := tunnel.GetManager().Stop(tunnel.Masterdns); err != nil {
+		logger.Warning("tunnel: stop before masterdns binary delete failed:", err)
+	}
+	if err := os.Remove(tunnel.Masterdns.BinaryPath()); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func (s *TunnelService) DownloadMasterdnsBinary(downloadURL, wantSHA256 string) error {
+	return s.downloadBinaryTo(tunnel.Masterdns.BinaryPath(), downloadURL, wantSHA256)
+}
+
 func (s *TunnelService) OpenfluxStatus() (MieruStatus, error) {
 	mgr := tunnel.GetManager()
 	bin := tunnel.Openflux.BinaryPath()
@@ -1747,6 +1937,48 @@ func (s *TunnelService) AnytlsLogs(lines int) []string {
 }
 
 // DeleteAnytlsBinary stops every anytls instance and removes the binary.
+// WgoStatus is the wgobfs card state for Settings → Cores: one binary serves
+// both the kernel-WG wgo proxies and the wgosocks exits.
+func (s *TunnelService) WgoStatus() (AnytlsStatus, error) {
+	mgr := tunnel.GetManager()
+	bin := tunnel.Wgo.BinaryPath()
+	info, statErr := os.Stat(bin)
+	return AnytlsStatus{
+		Core:         string(tunnel.Wgo),
+		DisplayName:  tunnel.Wgo.DisplayName(),
+		BinaryExists: statErr == nil && !info.IsDir(),
+		BinaryPath:   bin,
+		Probe:        tunnel.Status{Running: mgr.AnyRunning("wgo-") || mgr.AnyRunning("wgosocks-")},
+		LastLog:      mgr.LastLogPrefixed("wgosocks-"),
+	}, nil
+}
+
+// WgoLogs tails the newest wgo/wgosocks process ring log.
+func (s *TunnelService) WgoLogs(lines int) []string {
+	mgr := tunnel.GetManager()
+	if logs := mgr.LogsPrefixed("wgosocks-", lines); len(logs) > 0 {
+		return logs
+	}
+	return mgr.LogsPrefixed("wgo-", lines)
+}
+
+// DeleteWgoBinary stops every wgobfs process and removes the shared binary.
+func (s *TunnelService) DeleteWgoBinary() error {
+	mgr := tunnel.GetManager()
+	mgr.StopPrefixed("wgo-")
+	mgr.StopPrefixed("wgosocks-")
+	if err := os.Remove(tunnel.Wgo.BinaryPath()); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// DownloadWgoBinary fetches the wgobfs binary from URL (optionally checking
+// sha256) into the shared binary path.
+func (s *TunnelService) DownloadWgoBinary(downloadURL, wantSHA256 string) error {
+	return s.downloadBinaryTo(tunnel.Wgo.BinaryPath(), downloadURL, wantSHA256)
+}
+
 func (s *TunnelService) DeleteAnytlsBinary() error {
 	tunnel.GetManager().StopPrefixed("anytls-")
 	if err := os.Remove(tunnel.Anytls.BinaryPath()); err != nil && !os.IsNotExist(err) {
@@ -1836,6 +2068,58 @@ func (s *TunnelService) DownloadMtproxyBinary(downloadURL, wantSHA256 string) er
 	return s.downloadBinaryTo(tunnel.Mtproxy.BinaryPath(), downloadURL, wantSHA256)
 }
 
+func (s *TunnelService) TelemtStatus() (TproxyStatus, error) {
+	mgr := tunnel.GetManager()
+	bin := tunnel.Telemt.BinaryPath()
+	info, statErr := os.Stat(bin)
+	return TproxyStatus{Core: string(tunnel.Telemt), DisplayName: tunnel.Telemt.DisplayName(), BinaryExists: statErr == nil && !info.IsDir(), BinaryPath: bin, Probe: tunnel.Status{Running: mgr.AnyRunning("telemt-")}, LastLog: mgr.LastLogPrefixed("telemt-")}, nil
+}
+
+func (s *TunnelService) TelemtLogs(lines int) []string {
+	if lines <= 0 {
+		lines = 200
+	}
+	return tunnel.GetManager().LogsPrefixed("telemt-", lines)
+}
+
+func (s *TunnelService) DeleteTelemtBinary() error {
+	tunnel.GetManager().StopPrefixed("telemt-")
+	if err := os.Remove(tunnel.Telemt.BinaryPath()); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func (s *TunnelService) DownloadTelemtBinary(downloadURL, wantSHA256 string) error {
+	return s.downloadBinaryTo(tunnel.Telemt.BinaryPath(), downloadURL, wantSHA256)
+}
+
+func (s *TunnelService) MtprotoZigStatus() (TproxyStatus, error) {
+	mgr := tunnel.GetManager()
+	bin := tunnel.MtprotoZig.BinaryPath()
+	info, statErr := os.Stat(bin)
+	return TproxyStatus{Core: string(tunnel.MtprotoZig), DisplayName: tunnel.MtprotoZig.DisplayName(), BinaryExists: statErr == nil && !info.IsDir(), BinaryPath: bin, Probe: tunnel.Status{Running: mgr.AnyRunning("mtproto-zig-")}, LastLog: mgr.LastLogPrefixed("mtproto-zig-")}, nil
+}
+
+func (s *TunnelService) MtprotoZigLogs(lines int) []string {
+	if lines <= 0 {
+		lines = 200
+	}
+	return tunnel.GetManager().LogsPrefixed("mtproto-zig-", lines)
+}
+
+func (s *TunnelService) DeleteMtprotoZigBinary() error {
+	tunnel.GetManager().StopPrefixed("mtproto-zig-")
+	if err := os.Remove(tunnel.MtprotoZig.BinaryPath()); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func (s *TunnelService) DownloadMtprotoZigBinary(downloadURL, wantSHA256 string) error {
+	return s.downloadBinaryTo(tunnel.MtprotoZig.BinaryPath(), downloadURL, wantSHA256)
+}
+
 func (s *TunnelService) UploadTproxySite(inboundID int, zipBytes []byte) error {
 	ib, err := s.inboundService.GetInbound(inboundID)
 	if err != nil {
@@ -1843,6 +2127,9 @@ func (s *TunnelService) UploadTproxySite(inboundID int, zipBytes []byte) error {
 	}
 	if ib == nil || (ib.Protocol != model.Tproxy && ib.Protocol != model.Cover) {
 		return common.NewError("inbound is not tproxy or cover")
+	}
+	if ib.NodeID != nil {
+		return common.NewError("ZIP site upload for node inbounds is not supported")
 	}
 	dir := tunnel.TproxySiteDir(inboundID)
 	if ib.Protocol == model.Cover {
@@ -1863,6 +2150,9 @@ func (s *TunnelService) TproxySiteFiles(inboundID int) ([]string, error) {
 	}
 	if ib == nil || (ib.Protocol != model.Tproxy && ib.Protocol != model.Cover) {
 		return nil, common.NewError("inbound is not tproxy or cover")
+	}
+	if ib.NodeID != nil {
+		return nil, common.NewError("ZIP site files for node inbounds are not available on the master")
 	}
 	if ib.Protocol == model.Cover {
 		return tunnel.ListCoverSite(inboundID), nil

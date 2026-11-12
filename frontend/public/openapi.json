@@ -3,7 +3,7 @@
   "info": {
     "title": "3X-UI Panel API",
     "version": "3.x",
-    "description": "Programmatic interface to a 3X-UI panel. Authenticate either by logging in (cookie) or with an API token from Settings → Security → API Token (Bearer). All endpoints under /panel/api/* honour both modes — an API token is a full-admin credential, so treat it like the panel password."
+    "description": "Programmatic interface to a 3X-UI panel. Authenticate either by logging in (cookie) or with a scoped API token from Settings → Security → API Token (Bearer). Token access is limited by its admin, monitor, node-sync, or node-admin scope; treat admin tokens like the panel password."
   },
   "servers": [
     {
@@ -16,7 +16,7 @@
       "bearerAuth": {
         "type": "http",
         "scheme": "bearer",
-        "description": "API token from Settings → Security → API Token. Send as `Authorization: Bearer <token>`."
+        "description": "Scoped API token from Settings → Security → API Token. Send as `Authorization: Bearer <token>`."
       },
       "cookieAuth": {
         "type": "apiKey",
@@ -158,6 +158,11 @@
             "minimum": 0,
             "type": "integer"
           },
+          "nodeDownThreshold": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
           "outboundDownThreshold": {
             "maximum": 100,
             "minimum": 1,
@@ -259,6 +264,10 @@
           "subClashPath": {
             "type": "string"
           },
+          "subClashRemoteDNS": {
+            "description": "END LUCX-HOOK",
+            "type": "boolean"
+          },
           "subClashRules": {
             "type": "string"
           },
@@ -358,6 +367,10 @@
           },
           "subHideSettings": {
             "type": "boolean"
+          },
+          "subHostSortMode": {
+            "example": "inbound-first",
+            "type": "string"
           },
           "subIncyAnnounceUrl": {
             "type": "string"
@@ -460,6 +473,10 @@
           "subJsonAutoDetect": {
             "type": "boolean"
           },
+          "subJsonClientWarp": {
+            "description": "LUCX-HOOK (lucx.342)",
+            "type": "string"
+          },
           "subJsonDns": {
             "type": "string"
           },
@@ -470,7 +487,6 @@
             "type": "string"
           },
           "subJsonMux": {
-            "description": "END LUCX-HOOK",
             "type": "string"
           },
           "subJsonObservatory": {
@@ -664,6 +680,7 @@
           "ldapUserFilter",
           "ldapVlessField",
           "logRetentionDays",
+          "nodeDownThreshold",
           "outboundDownThreshold",
           "pageSize",
           "panelOutbound",
@@ -693,6 +710,7 @@
           "subClashEnable",
           "subClashEnableRouting",
           "subClashPath",
+          "subClashRemoteDNS",
           "subClashRules",
           "subClashURI",
           "subClashUserAgentRegex",
@@ -726,6 +744,7 @@
           "subHappTunMode",
           "subHappTunType",
           "subHideSettings",
+          "subHostSortMode",
           "subIncyAnnounceUrl",
           "subIncyAppAutoDetect",
           "subIncyBannerBgColor",
@@ -759,6 +778,7 @@
           "subInfoNodeEnable",
           "subJsonAlwaysArray",
           "subJsonAutoDetect",
+          "subJsonClientWarp",
           "subJsonDns",
           "subJsonEnable",
           "subJsonFinalMask",
@@ -967,6 +987,11 @@
             "minimum": 0,
             "type": "integer"
           },
+          "nodeDownThreshold": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
           "outboundDownThreshold": {
             "maximum": 100,
             "minimum": 1,
@@ -1068,6 +1093,10 @@
           "subClashPath": {
             "type": "string"
           },
+          "subClashRemoteDNS": {
+            "description": "END LUCX-HOOK",
+            "type": "boolean"
+          },
           "subClashRules": {
             "type": "string"
           },
@@ -1167,6 +1196,10 @@
           },
           "subHideSettings": {
             "type": "boolean"
+          },
+          "subHostSortMode": {
+            "example": "inbound-first",
+            "type": "string"
           },
           "subIncyAnnounceUrl": {
             "type": "string"
@@ -1269,6 +1302,10 @@
           "subJsonAutoDetect": {
             "type": "boolean"
           },
+          "subJsonClientWarp": {
+            "description": "LUCX-HOOK (lucx.342)",
+            "type": "string"
+          },
           "subJsonDns": {
             "type": "string"
           },
@@ -1279,7 +1316,6 @@
             "type": "string"
           },
           "subJsonMux": {
-            "description": "END LUCX-HOOK",
             "type": "string"
           },
           "subJsonObservatory": {
@@ -1481,6 +1517,7 @@
           "ldapUserFilter",
           "ldapVlessField",
           "logRetentionDays",
+          "nodeDownThreshold",
           "outboundDownThreshold",
           "pageSize",
           "panelOutbound",
@@ -1510,6 +1547,7 @@
           "subClashEnable",
           "subClashEnableRouting",
           "subClashPath",
+          "subClashRemoteDNS",
           "subClashRules",
           "subClashURI",
           "subClashUserAgentRegex",
@@ -1543,6 +1581,7 @@
           "subHappTunMode",
           "subHappTunType",
           "subHideSettings",
+          "subHostSortMode",
           "subIncyAnnounceUrl",
           "subIncyAppAutoDetect",
           "subIncyBannerBgColor",
@@ -1576,6 +1615,7 @@
           "subInfoNodeEnable",
           "subJsonAlwaysArray",
           "subJsonAutoDetect",
+          "subJsonClientWarp",
           "subJsonDns",
           "subJsonEnable",
           "subJsonFinalMask",
@@ -1739,6 +1779,23 @@
         ],
         "type": "object"
       },
+      "Blocker": {
+        "description": "Blocker is one unmet requirement.",
+        "properties": {
+          "code": {
+            "example": "tools",
+            "type": "string"
+          },
+          "detail": {
+            "example": "awg",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
       "Client": {
         "description": "Client represents a client configuration for Xray inbounds with traffic limits and settings.",
         "properties": {
@@ -1765,6 +1822,17 @@
           "auth": {
             "description": "Auth password (Hysteria)",
             "type": "string"
+          },
+          "clientHostRuleIds": {
+            "description": "ClientHostRuleIds binds the client to these host rules, one link each; nil preserves, empty\nclears, and bindings with no usable host leave that inbound out of the subscription.",
+            "example": [
+              1,
+              2
+            ],
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
           },
           "comment": {
             "description": "Client comment",
@@ -1793,7 +1861,7 @@
             "type": "string"
           },
           "forwardedPorts": {
-            "description": "END LUCX-HOOK\nAmneziaWG per-client port-forwarding spec, e.g. \"80,443,8000-8100\"",
+            "description": "AmneziaWG per-client port-forwarding spec, e.g. \"80,443,8000-8100\"",
             "type": "string"
           },
           "group": {
@@ -1805,12 +1873,23 @@
             "type": "string"
           },
           "keepAlive": {
-            "description": "LUCX-HOOK: KeepAliveValue (number or AWG3 range string). Not *int:\na vanilla INTEGER column still Scans, and \"15-25\" must round-trip.",
-            "type": "string"
+            "description": "Numeric values or AmneziaWG ranges; 0 disables, omission preserves.",
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
           },
           "limitIp": {
             "description": "IP limit for this client",
             "type": "integer"
+          },
+          "neverLogIps": {
+            "description": "NeverLogIPs keeps this client's addresses out of the panel: no live IP\nlist, no device last-IP, no IP-limit log. The IP limit can't apply to it.",
+            "type": "boolean"
           },
           "password": {
             "description": "Client password",
@@ -1996,6 +2075,16 @@
           "auth": {
             "type": "string"
           },
+          "clientHostRuleIds": {
+            "example": [
+              1,
+              2
+            ],
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
           "comment": {
             "type": "string"
           },
@@ -2017,7 +2106,6 @@
             "type": "string"
           },
           "forwardedPorts": {
-            "description": "END LUCX-HOOK",
             "type": "string"
           },
           "group": {
@@ -2027,14 +2115,24 @@
             "type": "integer"
           },
           "keepAlive": {
-            "description": "LUCX-HOOK: string column so AWG3 ranges (\"15-25\") round-trip; legacy ints coerce via SQLite/PG text",
-            "type": "string"
+            "description": "Numeric values or AmneziaWG ranges.",
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
           },
           "limitHwid": {
             "type": "integer"
           },
           "limitIp": {
             "type": "integer"
+          },
+          "neverLogIps": {
+            "type": "boolean"
           },
           "password": {
             "type": "string"
@@ -2108,6 +2206,7 @@
           "keepAlive",
           "limitHwid",
           "limitIp",
+          "neverLogIps",
           "password",
           "preSharedKey",
           "privateKey",
@@ -2277,6 +2376,11 @@
           "limitIp": {
             "example": 0,
             "type": "integer"
+          },
+          "neverLogIps": {
+            "description": "LUCX-HOOK (lucx.342)",
+            "example": false,
+            "type": "boolean"
           },
           "reset": {
             "example": 0,
@@ -2805,6 +2909,10 @@
             "minimum": 0,
             "type": "integer"
           },
+          "randomCount": {
+            "example": 1,
+            "type": "integer"
+          },
           "remark": {
             "example": "cdn-front",
             "maxLength": 256,
@@ -2829,6 +2937,15 @@
           },
           "sni": {
             "type": "string"
+          },
+          "sniSharedRandom": {
+            "type": "boolean"
+          },
+          "snis": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "sockoptParams": {},
           "sortOrder": {
@@ -2877,11 +2994,13 @@
           "path",
           "pinnedPeerCertSha256",
           "port",
+          "randomCount",
           "remark",
           "security",
           "serverDescription",
           "shuffleHost",
           "sni",
+          "sniSharedRandom",
           "sockoptParams",
           "sortOrder",
           "tags",
@@ -2986,6 +3105,11 @@
             "minimum": 0,
             "type": "integer"
           },
+          "randomCount": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
           "remark": {
             "maxLength": 256,
             "type": "string"
@@ -3008,6 +3132,15 @@
           },
           "sni": {
             "type": "string"
+          },
+          "sniSharedRandom": {
+            "type": "boolean"
+          },
+          "snis": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "sockoptParams": {
             "type": "string"
@@ -3051,11 +3184,14 @@
           "path",
           "pinnedPeerCertSha256",
           "port",
+          "randomCount",
           "remark",
           "security",
           "serverDescription",
           "shuffleHost",
           "sni",
+          "sniSharedRandom",
+          "snis",
           "sockoptParams",
           "sortOrder",
           "tags",
@@ -3134,6 +3270,11 @@
       "Inbound": {
         "description": "Inbound represents an Xray inbound configuration with traffic statistics and settings.",
         "properties": {
+          "balancerOnly": {
+            "description": "Whether to expose this inbound only as a subscription-balancer member",
+            "example": false,
+            "type": "boolean"
+          },
           "clientStats": {
             "description": "Client traffic statistics",
             "items": {
@@ -3215,6 +3356,7 @@
               "tunnel",
               "tun",
               "mtproto",
+              "telemt",
               "amneziawg",
               "tuic",
               "masque",
@@ -3223,13 +3365,16 @@
               "olcrtc",
               "qwdtt",
               "csqtt",
+              "masterdns",
+              "aivpn",
               "openflux",
               "mieru",
               "trusttunnel",
               "anytls",
               "tproxy",
               "cover",
-              "gateway"
+              "gateway",
+              "wgosocks"
             ],
             "example": "vless",
             "type": "string"
@@ -3292,6 +3437,7 @@
           }
         },
         "required": [
+          "balancerOnly",
           "clientStats",
           "disableFlow",
           "down",
@@ -3480,7 +3626,14 @@
           "wgMtu": {
             "type": "integer"
           },
+          "wgObfuscation": {
+            "description": "LUCX-HOOK: wgobfs — kernel-WG obfuscation presets (JSON of the\nsettings.obfuscation block) and the raw wgosocks inbound settings, so\nthe clients page renders [instance]/phobos:// exports without a second\nround trip (awgObfuscation precedent).",
+            "type": "string"
+          },
           "wgPublicKey": {
+            "type": "string"
+          },
+          "wgosocksConfig": {
             "type": "string"
           }
         },
@@ -3794,6 +3947,13 @@
           },
           "transitive": {
             "type": "boolean"
+          },
+          "unavailableMetrics": {
+            "description": "Nil on legacy rows and responses: zero remains a valid measured value.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "updatedAt": {
             "example": 1700000000,
@@ -4119,6 +4279,12 @@
             "example": false,
             "type": "boolean"
           },
+          "unavailableMetrics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "updatedAt": {
             "example": 1700003600,
             "format": "int64",
@@ -4379,6 +4545,12 @@
             "example": "online",
             "type": "string"
           },
+          "unavailableMetrics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "uptimeSecs": {
             "example": 86400,
             "format": "int64",
@@ -4407,6 +4579,37 @@
           "xrayError",
           "xrayState",
           "xrayVersion"
+        ],
+        "type": "object"
+      },
+      "Readiness": {
+        "description": "Readiness is the host's ability to run any kernel-mode inbound at all.",
+        "properties": {
+          "blockers": {
+            "example": [
+              {
+                "code": "tools",
+                "detail": "awg"
+              }
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Blocker"
+            },
+            "type": "array"
+          },
+          "installCommand": {
+            "example": "sudo /usr/local/x-ui/x-ui install-awg-kernel",
+            "type": "string"
+          },
+          "ready": {
+            "example": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "blockers",
+          "installCommand",
+          "ready"
         ],
         "type": "object"
       },
@@ -4591,6 +4794,10 @@
           },
           "keepaliveTimeout": {
             "type": "string"
+          },
+          "kernelMode": {
+            "description": "KernelMode runs this inbound on the AmneziaWG kernel module (internal/amneziawgkern)\ninstead of the embedded amneziawg-go + gVisor stack.",
+            "type": "boolean"
           },
           "maxHandshakeAttempts": {
             "type": "string"
@@ -4846,6 +5053,35 @@
         ],
         "type": "object"
       },
+      "TgBotCapabilities": {
+        "description": "TgBotCapabilities is the browser-safe shape of the bot's own capabilities.",
+        "properties": {
+          "groupPrivacy": {
+            "description": "GroupPrivacy off means the bot reads every group message; when it is on,\na bare /start in a group is invisible to the bot.",
+            "example": false,
+            "type": "boolean"
+          },
+          "inlineEnabled": {
+            "example": true,
+            "type": "boolean"
+          },
+          "running": {
+            "example": true,
+            "type": "boolean"
+          },
+          "username": {
+            "example": "xui_bot",
+            "type": "string"
+          }
+        },
+        "required": [
+          "groupPrivacy",
+          "inlineEnabled",
+          "running",
+          "username"
+        ],
+        "type": "object"
+      },
       "Traffic": {
         "description": "Traffic represents network traffic statistics for Xray connections.\nIt tracks upload and download bytes for inbound or outbound traffic.",
         "properties": {
@@ -5041,6 +5277,14 @@
       "description": "Manage external tunnel-server sidecars that run next to the Xray core. Cores: (1) NaiveProxy — Caddy with forward_proxy (klzgrad, HTTP/2 padding), optional routeThroughXray SOCKS bridge; (2) olcRTC — TCP-over-WebRTC via meet rooms (Jitsi/Telemost/WB Stream), YAML config, olcrtc:// connect URI; (3) qWDTT — WireGuard over VK TURN (SpaceNeuroX wdtt-server), CLI flags, qwdtt:// URI + subscription JSON. Each core is supervised (start/stop/restart, ring logs, binary upload/download); the reconcile job (every 10s) revives a crashed core. All endpoints live under /panel/api/tunnel and require a logged-in session or Bearer token. LucX-UI only."
     },
     {
+      "name": "Scanner Guard",
+      "description": "Blocks incoming connections from known RKN/government scanner subnets. CIDR lists are fetched from operator-configured HTTPS sources and installed as ipset hash:net sets (lucx-sg4 / lucx-sg6) with owner-marked iptables/ip6tables INPUT rules (comment lucx-scanguard, conntrack NEW only); on hosts without the ipset/iptables tooling the guard uses native nftables instead — one owned table (lucx_scanguard) with sets lucx-sg4/lucx-sg6 and a hooked input chain, replaced atomically per refresh. The reconcile job (every 30m) re-ensures rules after reboot/iptables flush and re-fetches lists at most once per 6h; a broken source aborts the refresh and keeps the previous blocklist. Whitelisted subnets are excluded before install. Linux only. All endpoints live under /panel/api/scanguard and require a logged-in session or Bearer token. LucX-UI only."
+    },
+    {
+      "name": "Clean IP",
+      "description": "Probes random addresses from the published Cloudflare IPv4 ranges for TCP reachability and latency so an operator can pick a healthy client-side edge address. Optional TLS handshake verification against a chosen SNI drops edges whose handshake fails. Read-only and synchronous: results are returned in the response and nothing is ever applied to configs automatically (Rule 0). Live under /panel/api/cleanip and require a logged-in session or Bearer token. LucX-UI only."
+    },
+    {
       "name": "Server",
       "description": "System status, log retrieval, certificate generators, Xray binary management, and backup/restore. All under /panel/api/server."
     },
@@ -5066,7 +5310,7 @@
     },
     {
       "name": "API Tokens",
-      "description": "Manage scoped Bearer tokens for programmatic auth. Tokens grant admin, monitor, or node-sync access, may expire, and are stored as SHA-256 hashes. The plaintext is returned only once at creation."
+      "description": "Manage scoped Bearer tokens for programmatic auth. admin grants the full panel API; monitor is read-only for status and metrics; node-sync manages node configuration without panel updates; node-admin adds panel self-update to node-sync. Tokens may expire and are stored as SHA-256 hashes. The plaintext is returned only once at creation."
     },
     {
       "name": "Xray Settings",
@@ -5363,6 +5607,7 @@
                   "success": true,
                   "obj": [
                     {
+                      "balancerOnly": false,
                       "clientStats": [
                         {
                           "down": 2097152,
@@ -5524,9 +5769,56 @@
                       "tuicServer": null,
                       "wgDns": "",
                       "wgMtu": 0,
-                      "wgPublicKey": ""
+                      "wgObfuscation": "",
+                      "wgPublicKey": "",
+                      "wgosocksConfig": ""
                     }
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/inbounds/amneziawgKernelReadiness": {
+      "get": {
+        "tags": [
+          "Inbounds"
+        ],
+        "summary": "Whether this host can run an AmneziaWG inbound on the kernel module. Returns ready, host blocker codes (root/tools/module/nft), and the command that fixes them. Saving an inbound also checks its features and rejects IPv6, port forwarding, routeThroughXray, or a pinned listen address that the kernel backend cannot honor.",
+        "operationId": "get_panel_api_inbounds_amneziawgKernelReadiness",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {
+                      "$ref": "#/components/schemas/Readiness"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "obj": {
+                    "blockers": [
+                      {
+                        "code": "tools",
+                        "detail": "awg"
+                      }
+                    ],
+                    "installCommand": "sudo /usr/local/x-ui/x-ui install-awg-kernel",
+                    "ready": false
+                  }
                 }
               }
             }
@@ -5640,6 +5932,463 @@
             "description": "Inbound ID.",
             "schema": {
               "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/inbounds/{id}/appleRelayDDM": {
+      "post": {
+        "tags": [
+          "Inbounds"
+        ],
+        "summary": "Download an Apple Network Relay declarative-management JSON document for a MASQUE inbound. This is DDM JSON only, not a standalone .mobileconfig; submit it through a compatible MDM/DDM service and verify Apple device behavior.",
+        "operationId": "post_panel_api_inbounds_id_appleRelayDDM",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "MASQUE inbound ID.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "name": "LucX MASQUE Relay",
+                "http2RelayUrl": "https://relay.example.com:8443/.well-known/masque/ip/*/*/",
+                "http3RelayUrl": "https://relay.example.com:8443/.well-known/masque/ip/*/*/",
+                "matchDomains": [
+                  "example.com"
+                ],
+                "excludedDomains": [],
+                "matchFQDNs": [],
+                "excludedFQDNs": [],
+                "publicKeyAssets": [],
+                "allowDNSFailover": false,
+                "uiEnabled": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/plugins/list": {
+      "get": {
+        "tags": [
+          "Inbounds"
+        ],
+        "summary": "List installed sidecar plugins and their process status.",
+        "operationId": "get_panel_api_plugins_list",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/plugins/install": {
+      "post": {
+        "tags": [
+          "Inbounds"
+        ],
+        "summary": "Install a sidecar plugin ZIP containing a validated apiVersion 1 manifest.",
+        "operationId": "post_panel_api_plugins_install",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/plugins/install/url/preview": {
+      "post": {
+        "tags": [
+          "Inbounds"
+        ],
+        "summary": "Validate the manifest of a public GitHub repository link (optionally /tree/<ref> for a pinned ref) without installing anything. Returns the parsed apiVersion 1 manifest so the panel can show what the operator is about to approve.",
+        "operationId": "post_panel_api_plugins_install_url_preview",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "url": "https://github.com/owner/repo"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/plugins/install/url": {
+      "post": {
+        "tags": [
+          "Inbounds"
+        ],
+        "summary": "Download the linked public GitHub repository and install it through the same apiVersion 1 contract as the ZIP install (dir overwrite, data/ preserved, plugin not activated). The manifest must match the one the preview returned.",
+        "operationId": "post_panel_api_plugins_install_url",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "url": "https://github.com/owner/repo/tree/v1.2.0"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/plugins/{id}/status": {
+      "get": {
+        "tags": [
+          "Inbounds"
+        ],
+        "summary": "Status of one installed plugin: manifest, binary/data/log paths, running flag and PID.",
+        "operationId": "get_panel_api_plugins_id_status",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Plugin ID.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/plugins/{id}/logs": {
+      "get": {
+        "tags": [
+          "Inbounds"
+        ],
+        "summary": "Recent plugin log lines. LucX-UI only.",
+        "operationId": "get_panel_api_plugins_id_logs",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Plugin ID.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/plugins/{id}/start": {
+      "post": {
+        "tags": [
+          "Inbounds"
+        ],
+        "summary": "Start the plugin sidecar process. LucX-UI only.",
+        "operationId": "post_panel_api_plugins_id_start",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Plugin ID.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/plugins/{id}/stop": {
+      "post": {
+        "tags": [
+          "Inbounds"
+        ],
+        "summary": "Stop the running plugin sidecar process. LucX-UI only.",
+        "operationId": "post_panel_api_plugins_id_stop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Plugin ID.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/plugins/{id}/restart": {
+      "post": {
+        "tags": [
+          "Inbounds"
+        ],
+        "summary": "Restart the plugin sidecar process. LucX-UI only.",
+        "operationId": "post_panel_api_plugins_id_restart",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Plugin ID.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/plugins/{id}/delete": {
+      "post": {
+        "tags": [
+          "Inbounds"
+        ],
+        "summary": "Remove the installed plugin and its data directory. LucX-UI only.",
+        "operationId": "post_panel_api_plugins_id_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Plugin ID.",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -6173,6 +6922,60 @@
         }
       }
     },
+    "/panel/api/inbounds/wireguard/importPreview": {
+      "post": {
+        "tags": [
+          "Inbounds"
+        ],
+        "summary": "Preview a standard WireGuard server configuration as a disabled kernel inbound. Does not execute hooks or change interfaces.",
+        "operationId": "post_panel_api_inbounds_wireguard_importPreview",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "config": {
+                    "type": "string",
+                    "description": "wg-quick server configuration; shell hooks are rejected."
+                  },
+                  "tproxyPort": {
+                    "type": "integer",
+                    "description": "Dedicated loopback TCP/UDP transparent listener port."
+                  }
+                },
+                "required": [
+                  "config",
+                  "tproxyPort"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/api/inbounds/awg/generateObfuscation": {
       "post": {
         "tags": [
@@ -6189,11 +6992,15 @@
                 "properties": {
                   "obfProfile": {
                     "type": "string",
-                    "description": "Obfuscation preset: \"lite\", \"standard\", \"pro\", or \"premium\". Defaults to \"standard\"."
+                    "description": "Obfuscation preset: \"lite\", \"standard\", \"pro\", \"premium\", or \"minecraft\" (Minecraft Bedrock/RakNet; renders its own I1-I5 and ignores mimicryProfile). Defaults to \"standard\"."
                   },
                   "mimicryProfile": {
                     "type": "string",
-                    "description": "CPS mimicry type: \"tls\", \"dns\", \"sip\", or \"quic\". Defaults to \"tls\"."
+                    "description": "CPS mimicry type: \"tls\", \"dns\", \"sip\", or \"quic\". Defaults to \"tls\". Ignored for \"minecraft\"."
+                  },
+                  "serverPort": {
+                    "type": "integer",
+                    "description": "The inbound's UDP port, embedded by the \"minecraft\" preset in I3 as the Bedrock endpoint port. Defaults to 19132."
                   },
                   "browserProfile": {
                     "type": "string",
@@ -9556,6 +10363,580 @@
         }
       }
     },
+    "/panel/api/tunnel/masterdns/status": {
+      "get": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "MasterDnsVPN core status for the Cores page: binary presence and process state. Inbound-only. LucX-UI only.",
+        "operationId": "get_panel_api_tunnel_masterdns_status",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/masterdns/logs": {
+      "get": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Recent log lines of the MasterDnsVPN process (ring buffer, default 200). LucX-UI only.",
+        "operationId": "get_panel_api_tunnel_masterdns_logs",
+        "parameters": [
+          {
+            "name": "lines",
+            "in": "query",
+            "required": false,
+            "description": "Max lines to return (default 200).",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/masterdns/upload": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Replace the masterdns binary on disk (multipart field \"file\"). Body-limit exempt. LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_masterdns_upload",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/masterdns/download": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Fetch the masterdns binary from a URL into place. https only, to a public host; redirects are bounded and re-checked. 200 MB cap. Optional sha256. LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_masterdns_download",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "url": "https://example.com/MasterDnsVPN_Server_Linux_AMD64",
+                "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/masterdns/deleteBinary": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Stop the MasterDnsVPN core and remove its binary from disk. LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_masterdns_deleteBinary",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/aivpn/status": {
+      "get": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "AIVPN core status for the Cores page: binary presence and process state. Inbound-only. LucX-UI only.",
+        "operationId": "get_panel_api_tunnel_aivpn_status",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/aivpn/logs": {
+      "get": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Recent log lines of the AIVPN process (ring buffer, default 200). LucX-UI only.",
+        "operationId": "get_panel_api_tunnel_aivpn_logs",
+        "parameters": [
+          {
+            "name": "lines",
+            "in": "query",
+            "required": false,
+            "description": "Max lines to return (default 200).",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/aivpn/upload": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Replace the aivpn binary on disk (multipart field \"file\"). Body-limit exempt. LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_aivpn_upload",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/aivpn/download": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Fetch the aivpn-server binary from a URL into place. https only, to a public host. 200 MB cap. Optional sha256. LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_aivpn_download",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "url": "https://example.com/aivpn-linux-amd64",
+                "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/aivpn/deleteBinary": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Stop the AIVPN core and remove its binary from disk. LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_aivpn_deleteBinary",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/aivpn/clients": {
+      "get": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "List AIVPN clients of the one local enabled inbound (relays the core management API). LucX-UI only.",
+        "operationId": "get_panel_api_tunnel_aivpn_clients",
+        "parameters": [
+          {
+            "name": "inboundId",
+            "in": "query",
+            "required": false,
+            "description": "Inbound id anchor (0 = any single local aivpn inbound).",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/aivpn/clientKey": {
+      "get": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Re-print the aivpn:// connection key of one AIVPN client (core re-derives it; nothing is stored panel-side). LucX-UI only.",
+        "operationId": "get_panel_api_tunnel_aivpn_clientKey",
+        "parameters": [
+          {
+            "name": "inboundId",
+            "in": "query",
+            "required": false,
+            "description": "Inbound id anchor (0 = any single local aivpn inbound).",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "clientId",
+            "in": "query",
+            "required": true,
+            "description": "AIVPN client id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/aivpn/clients/add": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Create an AIVPN client server-side; the connection key is minted by the core. LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_aivpn_clients_add",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "inboundId": 12,
+                "name": "Alice Phone"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/aivpn/clients/enable": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Enable or disable one AIVPN client (core API). LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_aivpn_clients_enable",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "inboundId": 12,
+                "clientId": "7",
+                "enabled": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/aivpn/clients/delete": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Remove one AIVPN client (core API). LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_aivpn_clients_delete",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "inboundId": 12,
+                "clientId": "7"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/api/tunnel/openflux/status": {
       "get": {
         "tags": [
@@ -10231,6 +11612,325 @@
         }
       }
     },
+    "/panel/api/tunnel/wgo/status": {
+      "get": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "wgobfs core status for the Cores page: one binary serves the kernel-WG obfuscation proxies (wgo-{id}) and the SOCKS5-exit inbounds (wgosocks-{id}). LucX-UI only.",
+        "operationId": "get_panel_api_tunnel_wgo_status",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/wgo/logs": {
+      "get": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Recent log lines of wgobfs processes (ring buffer, default 200). LucX-UI only.",
+        "operationId": "get_panel_api_tunnel_wgo_logs",
+        "parameters": [
+          {
+            "name": "lines",
+            "in": "query",
+            "required": false,
+            "description": "Max lines to return (default 200).",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/wgo/upload": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Replace the wgobfs binary on disk (multipart field \"file\"). Body-limit exempt. LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_wgo_upload",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/wgo/download": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Fetch the wgobfs binary from a URL into place (same guards as anytls: https only, bounded redirects, 200 MB cap, optional sha256 check). LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_wgo_download",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "url": "https://example.com/wgobfs-linux-amd64",
+                "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/wgo/deleteBinary": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Stop every wgobfs process and remove the binary from disk. LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_wgo_deleteBinary",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/inbounds/{id}/wgoStatus": {
+      "get": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Per-inbound wgobfs engine status: the wgo proxy of a kernel WireGuard inbound (UDP presets) or a wgosocks SOCKS5-exit inbound (TCP probe on the listen port). Read-only. LucX-UI only.",
+        "operationId": "get_panel_api_inbounds_id_wgoStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/inbounds/{id}/wgoLogs": {
+      "get": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Ring-log tail of the wgobfs engine of one inbound (default 200 lines). LucX-UI only.",
+        "operationId": "get_panel_api_inbounds_id_wgoLogs",
+        "parameters": [
+          {
+            "name": "lines",
+            "in": "query",
+            "required": false,
+            "description": "Max lines to return (default 200).",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/hostCheck": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Read-only check that a tproxy, cover, anytls, or trusttunnel inbound can run on this host (certificate, site directory, ports). The master calls it on a node instead of opening those paths locally. Returns status ok or refused; never file contents. LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_hostCheck",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "protocol": "tproxy",
+                "port": 8443,
+                "listen": "",
+                "tag": "tg-1",
+                "settings": "{\"hostname\":\"node.example.com\",\"siteSource\":\"upstream\",\"siteUpstream\":\"http://127.0.0.1:8080\",\"carrierMode\":\"https\",\"secret\":\"00112233445566778899aabbccddeeff\"}"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "obj": {
+                    "status": "ok"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/api/tunnel/tproxy/status": {
       "get": {
         "tags": [
@@ -10612,6 +12312,575 @@
                     },
                     "obj": {}
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/telemt/status": {
+      "get": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Telemt sidecar binary status. LucX-UI only.",
+        "operationId": "get_panel_api_tunnel_telemt_status",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/telemt/logs": {
+      "get": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Recent Telemt sidecar log lines. LucX-UI only.",
+        "operationId": "get_panel_api_tunnel_telemt_logs",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/telemt/upload": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Replace the Telemt sidecar binary. LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_telemt_upload",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/telemt/download": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Fetch the Telemt sidecar binary from a URL. LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_telemt_download",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "url": "https://example.com/telemt-linux-amd64",
+                "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/telemt/deleteBinary": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Remove the Telemt sidecar binary. LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_telemt_deleteBinary",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/mtproto-zig/status": {
+      "get": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "MTProto Zig WEB sidecar binary status. LucX-UI only.",
+        "operationId": "get_panel_api_tunnel_mtproto_zig_status",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/mtproto-zig/logs": {
+      "get": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Recent MTProto Zig WEB sidecar log lines. LucX-UI only.",
+        "operationId": "get_panel_api_tunnel_mtproto_zig_logs",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/mtproto-zig/upload": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Replace the MTProto Zig WEB sidecar binary. LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_mtproto_zig_upload",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/mtproto-zig/download": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Fetch the MTProto Zig WEB sidecar binary from a URL. LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_mtproto_zig_download",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "url": "https://example.com/mtproto-zig-linux-amd64",
+                "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/tunnel/mtproto-zig/deleteBinary": {
+      "post": {
+        "tags": [
+          "Tunnel tools"
+        ],
+        "summary": "Remove the MTProto Zig WEB sidecar binary. LucX-UI only.",
+        "operationId": "post_panel_api_tunnel_mtproto_zig_deleteBinary",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/scanguard/status": {
+      "get": {
+        "tags": [
+          "Scanner Guard"
+        ],
+        "summary": "Stored config (enabled, sources, whitelist) merged with the live firewall probe: which backend is active, ipset availability, rule presence per family and the number of installed subnets, plus the last list update time and the last refresh error, if any. LucX-UI only.",
+        "operationId": "get_panel_api_scanguard_status",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "obj": {
+                    "enabled": true,
+                    "sources": [
+                      "https://raw.githubusercontent.com/…/government_networks.list"
+                    ],
+                    "whitelist": [
+                      "203.0.113.0/24"
+                    ],
+                    "lastUpdated": "2026-11-07T12:00:00Z",
+                    "lastError": "",
+                    "firewall": {
+                      "backend": "iptables",
+                      "ipsetAvailable": true,
+                      "rulesV4": true,
+                      "rulesV6": true,
+                      "v4Entries": 5312,
+                      "v6Entries": 408,
+                      "skipped": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/scanguard/config": {
+      "post": {
+        "tags": [
+          "Scanner Guard"
+        ],
+        "summary": "Validate, persist and apply the scanner guard config. Enabling fetches every source, subtracts the whitelist and atomically swaps the ipset sets, then installs the INPUT rules; disabling sweeps the owner-marked rules and destroys the sets. Returns the fresh status. LucX-UI only.",
+        "operationId": "post_panel_api_scanguard_config",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "enabled": true,
+                "sources": [
+                  "https://raw.githubusercontent.com/shadow-netlab/traffic-guard-lists/refs/heads/main/public/government_networks.list"
+                ],
+                "whitelist": [
+                  "203.0.113.0/24"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "example": {
+                  "success": false,
+                  "msg": "scanguard: save failed (ipset not found — install the ipset package first)"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/scanguard/refresh": {
+      "post": {
+        "tags": [
+          "Scanner Guard"
+        ],
+        "summary": "Re-fetch every source and reinstall the blocklists now (operator button). Fails with ErrDisabled when the guard is off; a source failure keeps the previous sets and is reported in status.lastError. LucX-UI only.",
+        "operationId": "post_panel_api_scanguard_refresh",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "example": {
+                  "success": false,
+                  "msg": "scanguard: refresh failed (scanner guard is disabled)"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/cleanip/scan": {
+      "post": {
+        "tags": [
+          "Clean IP"
+        ],
+        "summary": "Run one scan batch: sample random Cloudflare addresses (default 256), TCP-probe them concurrently (32 workers), optionally verify a TLS handshake against the SNI, then return at most Count (default 30) healthy edges — TLS-verified first, then by latency. All fields optional: port 443, timeoutMs 1500 per probe, count ≤ 100, sample ≤ 4096. LucX-UI only.",
+        "operationId": "post_panel_api_cleanip_scan",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "port": 443,
+                "count": 30,
+                "sample": 256,
+                "timeoutMs": 1500,
+                "tlsCheck": true,
+                "sni": "www.cloudflare.com"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "obj": [
+                    {
+                      "address": "104.16.3.77",
+                      "port": 443,
+                      "latencyMs": 38,
+                      "tlsOk": true
+                    },
+                    {
+                      "address": "172.70.112.9",
+                      "port": 443,
+                      "latencyMs": 41,
+                      "tlsOk": true
+                    }
+                  ]
                 }
               }
             }
@@ -11885,7 +14154,7 @@
         "tags": [
           "Server"
         ],
-        "summary": "Self-update the panel to the latest version. The server restarts on success.",
+        "summary": "Self-update the panel to the latest version. The server restarts on success. Bearer-token callers need admin or node-admin scope.",
         "operationId": "post_panel_api_server_updatePanel",
         "requestBody": {
           "required": false,
@@ -13104,6 +15373,7 @@
                         ],
                         "limitHwid": 0,
                         "limitIp": 0,
+                        "neverLogIps": false,
                         "reset": 0,
                         "resetDay": 0,
                         "resetMax": 0,
@@ -13182,6 +15452,81 @@
         }
       }
     },
+    "/panel/api/clients/get/subId/{subId}": {
+      "get": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Fetch clients by subscription ID.",
+        "operationId": "get_panel_api_clients_get_subId_subId",
+        "description": "Matches the exact subscription ID and orders results by client ID. Returns an array of the same payloads as GET /clients/get/:email, since multiple clients can share a subscription ID. Includes disabled, expired and unattached clients. An unknown ID returns HTTP 200 with success:false, obj:null and a record-not-found message, matching the email lookup. Requires an admin token or a panel login session.",
+        "parameters": [
+          {
+            "name": "subId",
+            "in": "path",
+            "required": true,
+            "description": "Exact subscription ID (URL-encoded).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {
+                      "type": "array",
+                      "nullable": true,
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "client": {
+                            "$ref": "#/components/schemas/ClientRecord"
+                          },
+                          "inboundIds": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer"
+                            }
+                          },
+                          "externalLinks": {
+                            "type": "array",
+                            "items": {
+                              "type": "object"
+                            }
+                          },
+                          "usedTraffic": {
+                            "type": "integer",
+                            "format": "int64"
+                          },
+                          "tunnelAllowedIPs": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/api/clients/get/tgId/{tgId}": {
       "get": {
         "tags": [
@@ -13240,7 +15585,7 @@
                 "properties": {
                   "client": {
                     "type": "object",
-                    "description": "Client fields: email, subId, id (uuid), password, auth, flow, totalGB, expiryTime, limitIp, limitHwid, tgId (numeric Telegram user ID, 0 = none), comment, enable. Protocol-specific: secret and adTag (mtproto), privateKey, publicKey, preSharedKey, allowedIPs and keepAlive (WireGuard)."
+                    "description": "Client fields: email, subId, id (uuid), password, auth, flow, totalGB, expiryTime, limitIp, limitHwid, neverLogIps (true = the panel never records or shows the client IP addresses, so limitIp does not apply), tgId (numeric Telegram user ID, 0 = none), comment, enable. Protocol-specific: secret and adTag (mtproto), privateKey, publicKey, preSharedKey, allowedIPs and keepAlive (WireGuard)."
                   },
                   "inboundIds": {
                     "type": "array",
@@ -13422,6 +15767,7 @@
                 "totalGB": 107374182400,
                 "expiryTime": 1767225600000,
                 "limitHwid": 2,
+                "neverLogIps": false,
                 "tgId": 123456789,
                 "enable": true
               }
@@ -15068,6 +17414,7 @@
         ],
         "summary": "List registered HWID devices for a client with a short fingerprint. Full hashes are not exposed.",
         "operationId": "post_panel_api_clients_hwids_email",
+        "description": "`lastIp` is the address of the device's last subscription fetch, labelled from local IP databases on the server (`GeoLite2-*.mmdb` placed in the database or bin folder, else the free DB-IP Lite files the panel downloads monthly into the database folder; no lookup service is called). `source` names the database used (`maxmind`, `dbip`). The Xray log **Mask Address** option applies: `quarter` and `half` mask the address and drop `city`; `full` leaves `lastIp` and the labels out. A client with `neverLogIps` has no `lastIp`.",
         "parameters": [
           {
             "name": "email",
@@ -15107,7 +17454,16 @@
                       "deviceOs": "android",
                       "osVersion": "15",
                       "deviceModel": "Pixel 9",
-                      "fingerprint": "6ad17c93e821"
+                      "fingerprint": "6ad17c93e821",
+                      "lastIp": "203.0.113.24",
+                      "asn": 64500,
+                      "org": "Example Telecom",
+                      "country": "DE",
+                      "countryNames": {
+                        "en": "Germany"
+                      },
+                      "city": "Berlin",
+                      "source": "dbip"
                     }
                   ]
                 }
@@ -15861,6 +18217,9 @@
                       "status": "online",
                       "tlsVerifyMode": "verify",
                       "transitive": false,
+                      "unavailableMetrics": [
+                        ""
+                      ],
                       "updatedAt": 1700003600,
                       "uptimeSecs": 86400,
                       "xrayError": "",
@@ -16067,6 +18426,9 @@
                     "status": "online",
                     "tlsVerifyMode": "verify",
                     "transitive": false,
+                    "unavailableMetrics": [
+                      ""
+                    ],
                     "updatedAt": 1700003600,
                     "uptimeSecs": 86400,
                     "xrayError": "",
@@ -16222,6 +18584,9 @@
                     "status": "online",
                     "tlsVerifyMode": "verify",
                     "transitive": false,
+                    "unavailableMetrics": [
+                      ""
+                    ],
                     "updatedAt": 1700003600,
                     "uptimeSecs": 86400,
                     "xrayError": "",
@@ -16445,6 +18810,9 @@
                     "memPct": 45.2,
                     "panelVersion": "v3.x.x",
                     "status": "online",
+                    "unavailableMetrics": [
+                      ""
+                    ],
                     "uptimeSecs": 86400,
                     "xrayError": "",
                     "xrayState": "",
@@ -16797,11 +19165,16 @@
                         ""
                       ],
                       "port": 0,
+                      "randomCount": 1,
                       "remark": "",
                       "security": "same",
                       "serverDescription": "",
                       "shuffleHost": false,
                       "sni": "",
+                      "sniSharedRandom": false,
+                      "snis": [
+                        ""
+                      ],
                       "sockoptParams": "",
                       "sortOrder": 0,
                       "tags": [
@@ -16809,6 +19182,98 @@
                       ],
                       "verifyPeerCertByName": "",
                       "vlessRoute": ""
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/hosts/raw": {
+      "get": {
+        "tags": [
+          "Hosts"
+        ],
+        "summary": "List every host row with its numeric id, for id-based pickers such as the per-client host rule override.",
+        "operationId": "get_panel_api_hosts_raw",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Host"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "obj": [
+                    {
+                      "address": "cdn.example.com",
+                      "allowInsecure": false,
+                      "alpn": [
+                        ""
+                      ],
+                      "cipherSuites": "",
+                      "createdAt": 0,
+                      "echConfigList": "",
+                      "excludeFromSubTypes": [
+                        ""
+                      ],
+                      "finalMask": "",
+                      "fingerprint": "",
+                      "groupId": "",
+                      "hostHeader": "",
+                      "id": 1,
+                      "inboundId": 1,
+                      "isDisabled": false,
+                      "isHidden": false,
+                      "keepSniBlank": false,
+                      "mihomoIpVersion": "dual",
+                      "mihomoX25519": false,
+                      "muxParams": null,
+                      "nodeGuids": [
+                        ""
+                      ],
+                      "overrideSniFromAddress": false,
+                      "path": "",
+                      "pinnedPeerCertSha256": [
+                        ""
+                      ],
+                      "port": 8443,
+                      "randomCount": 1,
+                      "remark": "cdn-front",
+                      "security": "same",
+                      "serverDescription": "",
+                      "shuffleHost": false,
+                      "sni": "",
+                      "sniSharedRandom": false,
+                      "snis": [
+                        ""
+                      ],
+                      "sockoptParams": null,
+                      "sortOrder": 0,
+                      "tags": [
+                        ""
+                      ],
+                      "updatedAt": 0,
+                      "verifyPeerCertByName": "",
+                      "vlessRoute": "443"
                     }
                   ]
                 }
@@ -16892,11 +19357,16 @@
                       ""
                     ],
                     "port": 0,
+                    "randomCount": 1,
                     "remark": "",
                     "security": "same",
                     "serverDescription": "",
                     "shuffleHost": false,
                     "sni": "",
+                    "sniSharedRandom": false,
+                    "snis": [
+                      ""
+                    ],
                     "sockoptParams": "",
                     "sortOrder": 0,
                     "tags": [
@@ -16990,11 +19460,16 @@
                         ""
                       ],
                       "port": 0,
+                      "randomCount": 1,
                       "remark": "",
                       "security": "same",
                       "serverDescription": "",
                       "shuffleHost": false,
                       "sni": "",
+                      "sniSharedRandom": false,
+                      "snis": [
+                        ""
+                      ],
                       "sockoptParams": "",
                       "sortOrder": 0,
                       "tags": [
@@ -17138,11 +19613,16 @@
                         ""
                       ],
                       "port": 8443,
+                      "randomCount": 1,
                       "remark": "cdn-front",
                       "security": "same",
                       "serverDescription": "",
                       "shuffleHost": false,
                       "sni": "",
+                      "sniSharedRandom": false,
+                      "snis": [
+                        ""
+                      ],
                       "sockoptParams": null,
                       "sortOrder": 0,
                       "tags": [
@@ -17260,11 +19740,16 @@
                         ""
                       ],
                       "port": 8443,
+                      "randomCount": 1,
                       "remark": "cdn-front",
                       "security": "same",
                       "serverDescription": "",
                       "shuffleHost": false,
                       "sni": "",
+                      "sniSharedRandom": false,
+                      "snis": [
+                        ""
+                      ],
                       "sockoptParams": null,
                       "sortOrder": 0,
                       "tags": [
@@ -17382,7 +19867,7 @@
         "tags": [
           "Hosts"
         ],
-        "summary": "Set host group sort order by the position of each groupId in the array.",
+        "summary": "Set host group sort order by the position of each groupId in the array. IDs must be unique and refer to existing groups; omitted groups follow in their previous order.",
         "operationId": "post_panel_api_hosts_reorder",
         "requestBody": {
           "required": true,
@@ -17512,11 +19997,16 @@
                         ""
                       ],
                       "port": 8443,
+                      "randomCount": 1,
                       "remark": "cdn-front",
                       "security": "same",
                       "serverDescription": "",
                       "shuffleHost": false,
                       "sni": "",
+                      "sniSharedRandom": false,
+                      "snis": [
+                        ""
+                      ],
                       "sockoptParams": null,
                       "sortOrder": 0,
                       "tags": [
@@ -18003,6 +20493,47 @@
         }
       }
     },
+    "/panel/api/setting/tgBotCapabilities": {
+      "post": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Report what the configured bot can do. Inline mode is a BotFather switch, so the panel warns when it is off.",
+        "operationId": "post_panel_api_setting_tgBotCapabilities",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {
+                      "$ref": "#/components/schemas/TgBotCapabilities"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "obj": {
+                    "groupPrivacy": false,
+                    "inlineEnabled": true,
+                    "running": true,
+                    "username": "xui_bot"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/api/setting/testDiscord": {
       "post": {
         "tags": [
@@ -18096,9 +20627,11 @@
                   "obj": [
                     {
                       "id": 1,
-                      "name": "default",
+                      "name": "central-panel-a",
                       "enabled": true,
-                      "createdAt": 1736000000
+                      "createdAt": 1736000000,
+                      "scope": "node-admin",
+                      "expiresAt": 0
                     }
                   ]
                 }
@@ -18128,7 +20661,13 @@
                   },
                   "scope": {
                     "type": "string",
-                    "description": "admin (default), monitor, or node-sync."
+                    "enum": [
+                      "admin",
+                      "monitor",
+                      "node-sync",
+                      "node-admin"
+                    ],
+                    "description": "admin (default), monitor, node-sync, or node-admin. node-admin inherits node-sync and may also start a panel update."
                   },
                   "expiresAt": {
                     "type": "integer",
@@ -18141,7 +20680,7 @@
               },
               "example": {
                 "name": "central-panel-a",
-                "scope": "node-sync",
+                "scope": "node-admin",
                 "expiresAt": 1798761600000
               }
             }
@@ -20817,6 +23356,12 @@
                     },
                     "ipv6": {
                       "type": "string"
+                    },
+                    "extra": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     }
                   }
                 },
@@ -20903,7 +23448,10 @@
                 },
                 "publicIP": {
                   "ipv4": "192.0.2.1",
-                  "ipv6": "2001:db8::1"
+                  "ipv6": "2001:db8::1",
+                  "extra": [
+                    "192.0.2.2"
+                  ]
                 },
                 "appStats": {
                   "threads": 16,
@@ -21150,6 +23698,7 @@
               "type": "inbounds",
               "payload": [
                 {
+                  "balancerOnly": false,
                   "clientStats": [
                     {
                       "down": 2097152,
@@ -21280,6 +23829,9 @@
                   "status": "online",
                   "tlsVerifyMode": "verify",
                   "transitive": false,
+                  "unavailableMetrics": [
+                    ""
+                  ],
                   "updatedAt": 1700003600,
                   "uptimeSecs": 86400,
                   "xrayError": "",

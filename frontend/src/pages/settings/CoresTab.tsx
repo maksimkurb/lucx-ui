@@ -31,6 +31,7 @@ import { keys } from '@/api/queryKeys';
 import { useStatusQuery } from '@/api/queries/useStatusQuery';
 import { tunnelsApi } from '@/api/tunnels';
 import { sidecarOutboundsApi } from '@/api/sidecar-outbounds';
+import { pluginsApi } from '@/api/plugins';
 import type { SidecarProtocol } from '@/schemas/sidecar-outbound';
 import type { BbrStatus } from '@/models/status';
 
@@ -39,12 +40,17 @@ type CoreKind =
   | 'olcrtc'
   | 'qwdtt'
   | 'csqtt'
+  | 'masterdns'
+  | 'aivpn'
   | 'openflux'
   | 'mieru'
   | 'trusttunnel'
   | 'anytls'
+  | 'wgo'
   | 'tproxy'
-  | 'mtproxy';
+  | 'mtproxy'
+  | 'telemt'
+  | 'mtproto-zig';
 
 interface CoreStatusView {
   probe?: { running?: boolean };
@@ -100,6 +106,22 @@ const CORE_API: Record<
     download: tunnelsApi.csqttDownload,
     deleteBinary: tunnelsApi.csqttDeleteBinary,
   },
+  masterdns: {
+    key: keys.tunnels.masterdnsStatus,
+    status: tunnelsApi.masterdnsStatus,
+    logs: tunnelsApi.masterdnsLogs,
+    upload: tunnelsApi.masterdnsUpload,
+    download: tunnelsApi.masterdnsDownload,
+    deleteBinary: tunnelsApi.masterdnsDeleteBinary,
+  },
+  aivpn: {
+    key: keys.tunnels.aivpnStatus,
+    status: tunnelsApi.aivpnStatus,
+    logs: tunnelsApi.aivpnLogs,
+    upload: tunnelsApi.aivpnUpload,
+    download: tunnelsApi.aivpnDownload,
+    deleteBinary: tunnelsApi.aivpnDeleteBinary,
+  },
   openflux: {
     key: keys.tunnels.openfluxStatus,
     status: tunnelsApi.openfluxStatus,
@@ -124,6 +146,14 @@ const CORE_API: Record<
     download: tunnelsApi.trustTunnelDownload,
     deleteBinary: tunnelsApi.trustTunnelDeleteBinary,
   },
+  wgo: {
+    key: keys.tunnels.wgoStatus,
+    status: tunnelsApi.wgoStatus,
+    logs: tunnelsApi.wgoLogs,
+    upload: tunnelsApi.wgoUpload,
+    download: tunnelsApi.wgoDownload,
+    deleteBinary: tunnelsApi.wgoDeleteBinary,
+  },
   anytls: {
     key: keys.tunnels.anytlsStatus,
     status: tunnelsApi.anytlsStatus,
@@ -147,6 +177,22 @@ const CORE_API: Record<
     upload: tunnelsApi.mtproxyUpload,
     download: tunnelsApi.mtproxyDownload,
     deleteBinary: tunnelsApi.mtproxyDeleteBinary,
+  },
+  telemt: {
+    key: keys.tunnels.telemtStatus,
+    status: tunnelsApi.telemtStatus,
+    logs: tunnelsApi.telemtLogs,
+    upload: tunnelsApi.telemtUpload,
+    download: tunnelsApi.telemtDownload,
+    deleteBinary: tunnelsApi.telemtDeleteBinary,
+  },
+  'mtproto-zig': {
+    key: keys.tunnels.mtprotoZigStatus,
+    status: tunnelsApi.mtprotoZigStatus,
+    logs: tunnelsApi.mtprotoZigLogs,
+    upload: tunnelsApi.mtprotoZigUpload,
+    download: tunnelsApi.mtprotoZigDownload,
+    deleteBinary: tunnelsApi.mtprotoZigDeleteBinary,
   },
 };
 
@@ -266,12 +312,12 @@ function BinaryCard({ kind, title }: { kind: CoreKind; title: string }) {
           showUploadList={false}
           beforeUpload={upload}
         >
-          <Button icon={<UploadOutlined />} disabled={busy}>
+          <Button icon={<UploadOutlined aria-hidden />} disabled={busy}>
             {t(`${i18nBase}.upload`)}
           </Button>
         </Upload>
         <Button
-          icon={<CloudDownloadOutlined />}
+          icon={<CloudDownloadOutlined aria-hidden />}
           onClick={() => setDownloadOpen(true)}
           disabled={busy}
         >
@@ -283,11 +329,11 @@ function BinaryCard({ kind, title }: { kind: CoreKind; title: string }) {
           cancelText={t('cancel')}
           onConfirm={() => run(() => api.deleteBinary() as Promise<{ success?: boolean }>)}
         >
-          <Button icon={<DeleteOutlined />} danger disabled={busy}>
+          <Button icon={<DeleteOutlined aria-hidden />} danger disabled={busy}>
             {t(`${i18nBase}.delete`)}
           </Button>
         </Popconfirm>
-        <Button icon={<FileSearchOutlined />} onClick={() => void showLogs()}>
+        <Button icon={<FileSearchOutlined aria-hidden />} onClick={() => void showLogs()}>
           {t('pages.tunnels.naive.logs')}
         </Button>
       </Space>
@@ -426,7 +472,7 @@ function AwgCard() {
       </Typography.Paragraph>
       <Space wrap>
         <Button
-          icon={<ReloadOutlined />}
+          icon={<ReloadOutlined aria-hidden />}
           disabled={busy || rebuilding || !loaded}
           onClick={() => void restartIfaces()}
         >
@@ -550,22 +596,109 @@ export default function CoresTab() {
       <BbrCard />
       <Divider />
       <Typography.Title level={5}>{t('pages.settings.cores.tunnelBinaries')}</Typography.Title>
+      <PluginCard />
       <BinaryCard kind="naive" title="NaiveProxy" />
       <BinaryCard kind="olcrtc" title="olcRTC" />
       <BinaryCard kind="qwdtt" title="qWDTT" />
       <BinaryCard kind="csqtt" title="CSQTT" />
+      <BinaryCard kind="masterdns" title="MasterDnsVPN" />
+      <BinaryCard kind="aivpn" title="AIVPN" />
       <BinaryCard kind="openflux" title="OpenFlux" />
       <BinaryCard kind="mieru" title="mieru" />
       <BinaryCard kind="trusttunnel" title="TrustTunnel" />
       <BinaryCard kind="anytls" title="AnyTLS" />
+      <BinaryCard kind="wgo" title="WG obfuscator (wgobfs)" />
       <BinaryCard kind="tproxy" title="Telegram WEB proxy" />
       <BinaryCard kind="mtproxy" title="MTProxy" />
+      <BinaryCard kind="telemt" title="Telemt (LucX)" />
+      <BinaryCard kind="mtproto-zig" title="MTProto Zig WEB" />
       <Divider />
       <Typography.Title level={5}>{t('pages.settings.cores.clientBinaries')}</Typography.Title>
       <ClientBinaryCard protocol="naive" titleKey="pages.settings.cores.naiveClient" />
       <ClientBinaryCard protocol="mieru" titleKey="pages.settings.cores.mieruClient" />
       <ClientBinaryCard protocol="trusttunnel" titleKey="pages.settings.cores.trusttunnelClient" />
     </div>
+  );
+}
+
+function PluginCard() {
+  const [busy, setBusy] = useState(false);
+  const { data, refetch } = useQuery({
+    queryKey: ['plugins'],
+    queryFn: pluginsApi.list,
+    refetchInterval: 5000,
+  });
+  const run = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    try {
+      await fn();
+      await refetch();
+    } finally {
+      setBusy(false);
+    }
+  };
+  const { t } = useTranslation();
+  return (
+    <Card size="small" style={{ marginBottom: 12 }} title={t('pages.inbounds.form.pluginsTitle')}>
+      <Typography.Paragraph type="secondary">
+        {t('pages.inbounds.form.pluginsDesc')}
+      </Typography.Paragraph>
+      <Upload
+        accept=".zip"
+        showUploadList={false}
+        beforeUpload={(file) => {
+          void run(() => pluginsApi.install(file));
+          return false;
+        }}
+      >
+        <Button icon={<UploadOutlined aria-hidden />} disabled={busy}>
+          {t('pages.settings.cores.pluginsInstall')}
+        </Button>
+      </Upload>
+      <Space direction="vertical" style={{ width: '100%', marginTop: 12 }}>
+        {(data?.success ? (data.obj ?? []) : []).map((plugin) => (
+          <Space key={plugin.manifest.id} wrap>
+            <Tag>
+              {plugin.manifest.name} {plugin.manifest.version}
+            </Tag>
+            <Badge
+              status={plugin.running ? 'success' : 'default'}
+              text={plugin.running ? 'running' : 'stopped'}
+            />
+            <Button
+              size="small"
+              onClick={() =>
+                void run(() =>
+                  plugin.running
+                    ? pluginsApi.stop(plugin.manifest.id)
+                    : pluginsApi.start(plugin.manifest.id),
+                )
+              }
+              disabled={busy}
+            >
+              {plugin.running
+                ? t('pages.settings.cores.pluginsStop')
+                : t('pages.settings.cores.pluginsStart')}
+            </Button>
+            <Button
+              size="small"
+              onClick={() => void run(() => pluginsApi.restart(plugin.manifest.id))}
+              disabled={busy}
+            >
+              {t('pages.settings.cores.pluginsRestart')}
+            </Button>
+            <Popconfirm
+              title={t('pages.settings.cores.pluginsDeleteConfirm')}
+              onConfirm={() => void run(() => pluginsApi.remove(plugin.manifest.id))}
+            >
+              <Button size="small" danger disabled={busy}>
+                {t('pages.settings.cores.pluginsDelete')}
+              </Button>
+            </Popconfirm>
+          </Space>
+        ))}
+      </Space>
+    </Card>
   );
 }
 
@@ -614,7 +747,7 @@ function ClientBinaryCard({ protocol, titleKey }: { protocol: SidecarProtocol; t
           showUploadList={false}
           beforeUpload={upload}
         >
-          <Button icon={<UploadOutlined />} disabled={busy}>
+          <Button icon={<UploadOutlined aria-hidden />} disabled={busy}>
             {t('pages.tunnels.naive.binary.upload')}
           </Button>
         </Upload>
@@ -634,7 +767,7 @@ function ClientBinaryCard({ protocol, titleKey }: { protocol: SidecarProtocol; t
             })();
           }}
         >
-          <Button icon={<DeleteOutlined />} danger disabled={busy}>
+          <Button icon={<DeleteOutlined aria-hidden />} danger disabled={busy}>
             {t('pages.tunnels.naive.binary.delete')}
           </Button>
         </Popconfirm>

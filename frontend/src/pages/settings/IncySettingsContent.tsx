@@ -59,7 +59,11 @@ export default function IncySettingsContent({
         items={[
           {
             key: 'app',
-            label: catTabLabel(<AppstoreOutlined />, t('pages.settings.subIncyGroupApp'), isMobile),
+            label: catTabLabel(
+              <AppstoreOutlined aria-hidden />,
+              t('pages.settings.subIncyGroupApp'),
+              isMobile,
+            ),
             children: (
               <>
                 <SettingListItem
@@ -133,7 +137,7 @@ export default function IncySettingsContent({
           {
             key: 'banners',
             label: catTabLabel(
-              <NotificationOutlined />,
+              <NotificationOutlined aria-hidden />,
               t('pages.settings.subIncyGroupBanners'),
               isMobile,
             ),
@@ -202,7 +206,7 @@ export default function IncySettingsContent({
           {
             key: 'privacy',
             label: catTabLabel(
-              <SafetyOutlined />,
+              <SafetyOutlined aria-hidden />,
               t('pages.settings.subIncyGroupPrivacy'),
               isMobile,
             ),
@@ -297,7 +301,7 @@ export default function IncySettingsContent({
           {
             key: 'network',
             label: catTabLabel(
-              <ThunderboltOutlined />,
+              <ThunderboltOutlined aria-hidden />,
               t('pages.settings.subIncyGroupNetwork'),
               isMobile,
             ),
@@ -456,7 +460,7 @@ export default function IncySettingsContent({
           {
             key: 'routing',
             label: catTabLabel(
-              <BranchesOutlined />,
+              <BranchesOutlined aria-hidden />,
               t('pages.settings.subIncyGroupRouting'),
               isMobile,
             ),

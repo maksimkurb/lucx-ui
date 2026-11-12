@@ -9,6 +9,7 @@
   position: sticky;
   top: 0;
   height: 100vh;
+  height: 100dvh;
   align-self: flex-start;
 }
 
@@ -252,10 +253,6 @@
   flex-direction: column;
   gap: 2px;
   width: 100%;
-}
-
-.sider-sponsor {
-  margin-bottom: 6px;
 }
 
 .sidebar-pin {

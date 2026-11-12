@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  Alert,
   Button,
   Divider,
   Modal,
@@ -422,7 +423,7 @@ export default function ClientInfoModal({
                       <Button
                         size="small"
                         type="text"
-                        icon={<CopyOutlined />}
+                        icon={<CopyOutlined aria-hidden />}
                         aria-label={t('copy')}
                         onClick={() => copyValue(client.subId!)}
                       />
@@ -437,7 +438,7 @@ export default function ClientInfoModal({
                       <Button
                         size="small"
                         type="text"
-                        icon={<CopyOutlined />}
+                        icon={<CopyOutlined aria-hidden />}
                         aria-label={t('copy')}
                         onClick={() => copyValue(client.uuid!)}
                       />
@@ -452,7 +453,7 @@ export default function ClientInfoModal({
                       <Button
                         size="small"
                         type="text"
-                        icon={<CopyOutlined />}
+                        icon={<CopyOutlined aria-hidden />}
                         aria-label={t('copy')}
                         onClick={() => copyValue(client.password!)}
                       />
@@ -467,7 +468,7 @@ export default function ClientInfoModal({
                       <Button
                         size="small"
                         type="text"
-                        icon={<CopyOutlined />}
+                        icon={<CopyOutlined aria-hidden />}
                         aria-label={t('copy')}
                         onClick={() => copyValue(client.auth!)}
                       />
@@ -524,12 +525,22 @@ export default function ClientInfoModal({
                   <td>{t('pages.clients.ipLimit')}</td>
                   <td>{!client.limitIp ? <Tag>∞</Tag> : <Tag>{client.limitIp}</Tag>}</td>
                 </tr>
+                {/* LUCX-HOOK: "Never log IPs" (lucx.342) */}
+                {client.neverLogIps && (
+                  <tr>
+                    <td>{t('pages.clients.neverLogIps')}</td>
+                    <td>
+                      <Tag color="purple">{t('enabled')}</Tag>
+                    </td>
+                  </tr>
+                )}
+                {/* END LUCX-HOOK */}
                 <tr>
                   <td>{t('pages.inbounds.IPLimitlog')}</td>
                   <td>
                     <Button
                       size="small"
-                      icon={<EyeOutlined />}
+                      icon={<EyeOutlined aria-hidden />}
                       aria-label={t('pages.clients.ipLog')}
                       loading={ipsLoading}
                       onClick={openIpsModal}
@@ -561,7 +572,7 @@ export default function ClientInfoModal({
                   <td>
                     <Button
                       size="small"
-                      icon={<EyeOutlined />}
+                      icon={<EyeOutlined aria-hidden />}
                       aria-label={t('pages.clients.hwidLog')}
                       loading={hwidsLoading}
                       onClick={openHwidsModal}
@@ -663,7 +674,7 @@ export default function ClientInfoModal({
                     <Tooltip title={t('copy')}>
                       <Button
                         size="small"
-                        icon={<CopyOutlined />}
+                        icon={<CopyOutlined aria-hidden />}
                         aria-label={t('copy')}
                         onClick={() => copyValue(subLink)}
                       />
@@ -671,7 +682,7 @@ export default function ClientInfoModal({
                     <Tooltip title={t('download')}>
                       <Button
                         size="small"
-                        icon={<DownloadOutlined />}
+                        icon={<DownloadOutlined aria-hidden />}
                         aria-label={t('download')}
                         loading={downloadingFormat === 'standard'}
                         disabled={downloadingFormat !== null}
@@ -693,7 +704,7 @@ export default function ClientInfoModal({
                       <Tooltip title={t('pages.clients.qrCode')}>
                         <Button
                           size="small"
-                          icon={<QrcodeOutlined />}
+                          icon={<QrcodeOutlined aria-hidden />}
                           aria-label={t('pages.clients.qrCode')}
                         />
                       </Tooltip>
@@ -718,7 +729,7 @@ export default function ClientInfoModal({
                       <Tooltip title={t('copy')}>
                         <Button
                           size="small"
-                          icon={<CopyOutlined />}
+                          icon={<CopyOutlined aria-hidden />}
                           aria-label={t('copy')}
                           onClick={() => copyValue(subJsonLink)}
                         />
@@ -726,7 +737,7 @@ export default function ClientInfoModal({
                       <Tooltip title={t('download')}>
                         <Button
                           size="small"
-                          icon={<DownloadOutlined />}
+                          icon={<DownloadOutlined aria-hidden />}
                           aria-label={t('download')}
                           loading={downloadingFormat === 'json'}
                           disabled={downloadingFormat !== null}
@@ -748,7 +759,7 @@ export default function ClientInfoModal({
                         <Tooltip title={t('pages.clients.qrCode')}>
                           <Button
                             size="small"
-                            icon={<QrcodeOutlined />}
+                            icon={<QrcodeOutlined aria-hidden />}
                             aria-label={t('pages.clients.qrCode')}
                           />
                         </Tooltip>
@@ -776,7 +787,7 @@ export default function ClientInfoModal({
                       <Tooltip title={t('copy')}>
                         <Button
                           size="small"
-                          icon={<CopyOutlined />}
+                          icon={<CopyOutlined aria-hidden />}
                           aria-label={t('copy')}
                           onClick={() => copyValue(subClashLink)}
                         />
@@ -784,7 +795,7 @@ export default function ClientInfoModal({
                       <Tooltip title={t('download')}>
                         <Button
                           size="small"
-                          icon={<DownloadOutlined />}
+                          icon={<DownloadOutlined aria-hidden />}
                           aria-label={t('download')}
                           loading={downloadingFormat === 'clash'}
                           disabled={downloadingFormat !== null}
@@ -806,7 +817,7 @@ export default function ClientInfoModal({
                         <Tooltip title={t('pages.clients.qrCode')}>
                           <Button
                             size="small"
-                            icon={<QrcodeOutlined />}
+                            icon={<QrcodeOutlined aria-hidden />}
                             aria-label={t('pages.clients.qrCode')}
                           />
                         </Tooltip>
@@ -840,7 +851,7 @@ export default function ClientInfoModal({
                         <Tooltip title={t('copy')}>
                           <Button
                             size="small"
-                            icon={<CopyOutlined />}
+                            icon={<CopyOutlined aria-hidden />}
                             aria-label={t('copy')}
                             onClick={() => copyValue(link)}
                           />
@@ -855,7 +866,7 @@ export default function ClientInfoModal({
                             <Tooltip title={t('pages.clients.qrCode')}>
                               <Button
                                 size="small"
-                                icon={<QrcodeOutlined />}
+                                icon={<QrcodeOutlined aria-hidden />}
                                 aria-label={t('pages.clients.qrCode')}
                               />
                             </Tooltip>
@@ -868,6 +879,16 @@ export default function ClientInfoModal({
               </>
             )}
 
+            {client &&
+              wgInbounds.length > 0 &&
+              !client.privateKey &&
+              !/^[A-Za-z0-9+/]{43}=$/.test(client.password || '') && (
+                <Alert
+                  type="info"
+                  showIcon
+                  title={t('pages.xray.wireguard.kernelPrivateKeyMissing')}
+                />
+              )}
             {wgConfigs.length > 0 && client && (
               <>
                 <Divider>{t('pages.clients.wireguardConfig')}</Divider>
@@ -948,7 +969,7 @@ export default function ClientInfoModal({
                             <Tooltip title="vpn://">
                               <Button
                                 size="small"
-                                icon={<CopyOutlined />}
+                                icon={<CopyOutlined aria-hidden />}
                                 onClick={() =>
                                   copyValue(withAwgInboundId(subAwgVpnLink, cfg.ib.id))
                                 }
@@ -1006,7 +1027,12 @@ export default function ClientInfoModal({
         width={440}
         onCancel={() => setIpsModalOpen(false)}
         footer={[
-          <Button key="refresh" icon={<ReloadOutlined />} loading={ipsLoading} onClick={loadIps}>
+          <Button
+            key="refresh"
+            icon={<ReloadOutlined aria-hidden />}
+            loading={ipsLoading}
+            onClick={loadIps}
+          >
             {t('refresh')}
           </Button>,
           <Button

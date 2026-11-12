@@ -15,10 +15,13 @@ import type { NaiveInboundSettings } from '@/schemas/protocols/inbound/naive'; /
 import type { OlcrtcInboundSettings } from '@/schemas/protocols/inbound/olcrtc';
 import type { QwdttInboundSettings } from '@/schemas/protocols/inbound/qwdtt';
 import type { CsqttInboundSettings } from '@/schemas/protocols/inbound/csqtt';
+import type { MasterdnsInboundSettings } from '@/schemas/protocols/inbound/masterdns';
+import type { AivpnInboundSettings } from '@/schemas/protocols/inbound/aivpn'; // LUCX-HOOK: AIVPN (settings type)
 import type { OpenfluxInboundSettings } from '@/schemas/protocols/inbound/openflux';
 import type { MieruInboundSettings } from '@/schemas/protocols/inbound/mieru';
 import type { TrustTunnelInboundSettings } from '@/schemas/protocols/inbound/trusttunnel';
 import type { AnytlsInboundSettings } from '@/schemas/protocols/inbound/anytls';
+import type { WgosocksInboundSettings } from '@/schemas/protocols/inbound/wgosocks'; // LUCX-HOOK: wgobfs SOCKS5-exit
 import type { TproxyInboundSettings } from '@/schemas/protocols/inbound/tproxy';
 import type { CoverInboundSettings } from '@/schemas/protocols/inbound/cover';
 import type { GatewayInboundSettings } from '@/schemas/protocols/inbound/gateway';
@@ -319,6 +322,35 @@ export function createDefaultOpenfluxInboundSettings(): OpenfluxInboundSettings 
     yandexUrl: '',
     mailruUrl: '',
     cupsUrl: '',
+    vyandexUrl: '',
+    boardsUrl: '',
+    telemostUrl: '',
+    avitoUrl: '',
+  };
+}
+
+export function createDefaultMasterdnsInboundSettings(): MasterdnsInboundSettings {
+  return {
+    domains: '',
+    secret: '',
+    encryption: 2,
+    resolvers: '',
+    routeThroughXray: false,
+    outboundTag: '',
+  };
+}
+
+// LUCX-HOOK: AIVPN — subnet/paths default on the backend (id-derived).
+export function createDefaultAivpnInboundSettings(): AivpnInboundSettings {
+  return {
+    listenHost: '0.0.0.0',
+    subnet: '',
+    serverIp: '',
+    tunName: '',
+    mtu: 0,
+    ipv6: false,
+    ipv6Prefix: '',
+    extraArgs: '',
   };
 }
 
@@ -329,6 +361,8 @@ export function createDefaultCsqttInboundSettings(): CsqttInboundSettings {
     deviceId: '',
     subHost: '',
     vkHashes: '',
+    vkTokenInLink: false,
+    memberGroup: '',
     routeThroughXray: false,
     outboundTag: '',
   };
@@ -376,6 +410,20 @@ export function createDefaultAnytlsInboundSettings(): AnytlsInboundSettings {
   };
 }
 
+export function createDefaultWgosocksInboundSettings(): WgosocksInboundSettings {
+  return {
+    key: '',
+    masking: 'MEDIA',
+    mediaSsrc: '',
+    mediaPt: 0,
+    mediaClock: 0,
+    maxDummy: 4,
+    idleTimeout: 300,
+    maxClients: 1024,
+    clients: [],
+  };
+}
+
 export function createDefaultGatewayInboundSettings(): GatewayInboundSettings {
   return { publicHost: '' };
 }
@@ -397,6 +445,7 @@ export function createDefaultTproxyInboundSettings(): TproxyInboundSettings {
     port: 443,
     hostname: '',
     secret: '',
+    backend: 'legacy',
     siteSource: 'zip',
     siteDir: '',
     siteUpstream: '',
@@ -577,6 +626,7 @@ export function createDefaultAmneziawgInboundSettings(): AmneziawgInboundSetting
       primaryDns: '8.8.8.8',
       secondaryDns: '8.8.4.4',
       externalInterface: '',
+      kernelMode: false,
       ipv6Enabled: false,
       ipv6Subnet: '',
       ipv6ExternalInterface: '',
@@ -633,10 +683,13 @@ export type AnyInboundSettings =
   | OlcrtcInboundSettings
   | QwdttInboundSettings
   | CsqttInboundSettings
+  | MasterdnsInboundSettings
+  | AivpnInboundSettings // LUCX-HOOK: AIVPN
   | OpenfluxInboundSettings
   | MieruInboundSettings
   | TrustTunnelInboundSettings
   | AnytlsInboundSettings
+  | WgosocksInboundSettings // LUCX-HOOK: wgobfs SOCKS5-exit
   | TproxyInboundSettings
   | CoverInboundSettings
   | GatewayInboundSettings
@@ -680,6 +733,10 @@ export function createDefaultInboundSettings(protocol: string): AnyInboundSettin
       return createDefaultQwdttInboundSettings();
     case 'csqtt':
       return createDefaultCsqttInboundSettings();
+    case 'masterdns':
+      return createDefaultMasterdnsInboundSettings();
+    case 'aivpn': // LUCX-HOOK: AIVPN
+      return createDefaultAivpnInboundSettings();
     case 'openflux':
       return createDefaultOpenfluxInboundSettings();
     case 'mieru':
@@ -694,6 +751,8 @@ export function createDefaultInboundSettings(protocol: string): AnyInboundSettin
       return createDefaultCoverInboundSettings();
     case 'gateway':
       return createDefaultGatewayInboundSettings();
+    case 'wgosocks':
+      return createDefaultWgosocksInboundSettings(); // LUCX-HOOK: wgobfs SOCKS5-exit
     case 'masque':
       return createDefaultMasqueInboundSettings();
     default:

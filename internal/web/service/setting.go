@@ -23,6 +23,7 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
 	"github.com/mhsanaei/3x-ui/v3/internal/lucx"
 	"github.com/mhsanaei/3x-ui/v3/internal/lucx/tunnel"
+	"github.com/mhsanaei/3x-ui/v3/internal/util/clientwarp"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/netproxy"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/random"
@@ -48,7 +49,7 @@ const (
 )
 
 func init() {
-	// LUCX-HOOK: stock Xray geodata auto-update (Loyalsoldier + IR + RU + ROSCOM)
+	// LUCX-HOOK: stock Xray geodata auto-update (Loyalsoldier + IR + RU + ROSCOM + GA)
 	if patched, changed, err := lucx.ApplyGeodata(xrayTemplateConfig); err == nil && changed {
 		xrayTemplateConfig = patched
 		defaultValueMap["xrayTemplateConfig"] = patched
@@ -77,138 +78,145 @@ var defaultValueMap = map[string]string{
 	// cert are minted lazily on first use, and the node-side trust CA is pasted
 	// in by the operator. Kept out of entity.AllSetting so private keys never
 	// reach the settings UI/export.
-	"nodeMtlsCaCertPem":           "",
-	"nodeMtlsCaKeyPem":            "",
-	"nodeMtlsClientCertPem":       "",
-	"nodeMtlsClientKeyPem":        "",
-	"nodeMtlsClientCertSha256":    "",
-	"nodeMtlsClientCAPem":         "",
-	"webBasePath":                 normalizeBasePath(getEnv("XUI_INIT_WEB_BASE_PATH", "/")),
-	"webFavicon":                  "",  // LUCX-HOOK: panel tab icon (emoji or base64)
-	"logRetentionDays":            "0", // LUCX-HOOK: auto-delete logs older than N days (0 = off)
-	"sessionMaxAge":               "360",
-	"trustedProxyCIDRs":           DefaultTrustedProxyCIDRs,
-	"realityScanCandidates":       DefaultRealityScanCandidatesCSV,
-	"ipLimitAllowlist":            "",
-	"pageSize":                    "25",
-	"expireDiff":                  "0",
-	"trafficDiff":                 "0",
-	"remarkTemplate":              DefaultRemarkTemplate,
-	"subShowIdentityOnAllLinks":   "false",
-	"subInfoNodeEnable":           "false",
-	"subCalendarExpireInclusive":  "false",
-	"subExpiredTemplate":          DefaultSubExpiredTemplate,
-	"subTrafficDepletedTemplate":  DefaultSubTrafficDepletedTemplate,
-	"timeLocation":                "Local",
-	"tgBotEnable":                 "false",
-	"tgBotToken":                  "",
-	"tgBotProxy":                  "",
-	"tgBotAPIServer":              "",
-	"tgBotChatId":                 "",
-	"tgRunTime":                   "@daily",
-	"tgBotBackup":                 "false",
-	"tgCpu":                       "80",
-	"tgMemory":                    "80",
-	"tgLang":                      "en-US",
-	"twoFactorEnable":             "false",
-	"twoFactorToken":              "",
-	"happLinkEnable":              "false",
-	"subEnable":                   "true",
-	"subJsonEnable":               "false",
-	"subJsonAutoDetect":           "false",
-	"subJsonAlwaysArray":          "false",
-	"subJsonUserAgentRegex":       "",
-	"subClashAutoDetect":          "false",
-	"subClashUserAgentRegex":      "",
-	"subTitle":                    "",
-	"subSupportUrl":               "",
-	"subProfileMode":              SubProfileModeNone,
-	"subProfileUrl":               "",
-	"subAnnounce":                 "",
-	"subEnableRouting":            "false",
-	"subRoutingRules":             "",
-	"subRoutingSource":            "custom", // LUCX-HOOK: RoscomVPN Happ profiles; custom = free-text rules
-	"subHideSettings":             "false",
-	"subHappAutoDetect":           "false",
-	"subHappProviderId":           "",
-	"subHappNewUrl":               "",
-	"subHappFallbackUrl":          "",
-	"subHappSubInfoColor":         "blue",
-	"subHappSubInfoText":          "",
-	"subHappSubInfoButtonText":    "",
-	"subHappSubInfoButtonLink":    "",
-	"subHappSubExpire":            "false",
-	"subHappSubExpireButtonLink":  "",
-	"subHappNotificationExpire":   "false",
-	"subHappNoLimit":              "false",
-	"subHappAlwaysHwid":           "false",
-	"subHappTunMode":              "",
-	"subHappTunType":              "",
-	"subHappExcludeRoutes":        "",
-	"subHappExcludeApns":          "false",
-	"subHappColorProfile":         "",
-	"subHappPingType":             "",
-	"subHappAutoConnect":          "false",
-	"subHappAutoConnectType":      "lowestdelay",
-	"subHappPerAppMode":           "off",
-	"subHappPerAppList":           "",
-	"subHappLocalProxyAuth":       "auto",
-	"subIncyEnableRouting":        "false",
-	"subIncyRoutingRules":         "",
-	"subIncyAppAutoDetect":        "false",
-	"subIncyProfileDescription":   "",
-	"subIncySortOrder":            "",
-	"subIncySupportEmail":         "",
-	"subIncyAnnounceUrl":          "",
-	"subIncyPremiumUrl":           "",
-	"subIncyBannerText":           "",
-	"subIncyBannerButtonText":     "",
-	"subIncyBannerButtonUrl":      "",
-	"subIncyBannerBgColor":        "",
-	"subIncyBannerButtonColor":    "",
-	"subIncyHideUrl":              "",
-	"subIncyHideCheck":            "",
-	"subIncyNoLimitEnabled":       "",
-	"subIncyPerAppEnable":         "",
-	"subIncyPerAppMode":           "",
-	"subIncyPerAppList":           "",
-	"subIncyFragmentationEnable":  "",
-	"subIncyFragmentLength":       "",
-	"subIncyFragmentInterval":     "",
-	"subIncyFragmentPackets":      "",
-	"subIncyNoisesEnable":         "",
-	"subIncyNoisesType":           "",
-	"subIncyNoisesPacket":         "",
-	"subIncyNoisesDelay":          "",
-	"subIncyResolveEnable":        "",
-	"subIncyResolveDnsDomain":     "",
-	"subIncyResolveDnsIp":         "",
-	"subListen":                   "",
-	"subPort":                     "2096",
-	"subPath":                     "/sub/",
-	"subDomain":                   "",
-	"subCertFile":                 "",
-	"subKeyFile":                  "",
-	"externalSubUserAgent":        DefaultExternalSubUserAgent,
-	"subUpdates":                  "12",
-	"subEncrypt":                  "true",
-	"subURI":                      "",
-	"subJsonPath":                 "/json/",
-	"subJsonURI":                  "",
-	"subClashEnable":              "false",
-	"subClashPath":                "/clash/",
-	"subClashURI":                 "",
-	"subClashEnableRouting":       "false",
-	"subClashRules":               "",
-	"subAwgEnable":                "true",
-	"subAwgPath":                  "/awg/",
-	"subAwgURI":                   "",
+	"nodeMtlsCaCertPem":          "",
+	"nodeMtlsCaKeyPem":           "",
+	"nodeMtlsClientCertPem":      "",
+	"nodeMtlsClientKeyPem":       "",
+	"nodeMtlsClientCertSha256":   "",
+	"nodeMtlsClientCAPem":        "",
+	"webBasePath":                normalizeBasePath(getEnv("XUI_INIT_WEB_BASE_PATH", "/")),
+	"webFavicon":                 "",  // LUCX-HOOK: panel tab icon (emoji or base64)
+	"logRetentionDays":           "0", // LUCX-HOOK: auto-delete logs older than N days (0 = off)
+	"sessionMaxAge":              "360",
+	"trustedProxyCIDRs":          DefaultTrustedProxyCIDRs,
+	"realityScanCandidates":      DefaultRealityScanCandidatesCSV,
+	"ipLimitAllowlist":           "",
+	"pageSize":                   "25",
+	"expireDiff":                 "0",
+	"trafficDiff":                "0",
+	"remarkTemplate":             DefaultRemarkTemplate,
+	"subShowIdentityOnAllLinks":  "false",
+	"subInfoNodeEnable":          "false",
+	"subHostSortMode":            "inbound-first",
+	"subCalendarExpireInclusive": "false",
+	"subExpiredTemplate":         DefaultSubExpiredTemplate,
+	"subTrafficDepletedTemplate": DefaultSubTrafficDepletedTemplate,
+	"timeLocation":               "Local",
+	"tgBotEnable":                "false",
+	"tgBotToken":                 "",
+	"tgBotProxy":                 "",
+	"tgBotAPIServer":             "",
+	"tgBotChatId":                "",
+	"tgRunTime":                  "@daily",
+	"tgBotBackup":                "false",
+	"tgCpu":                      "80",
+	"tgMemory":                   "80",
+	"tgLang":                     "en-US",
+	"twoFactorEnable":            "false",
+	"twoFactorToken":             "",
+	"happLinkEnable":             "false",
+	"subEnable":                  "true",
+	"subJsonEnable":              "false",
+	"subJsonAutoDetect":          "false",
+	"subJsonAlwaysArray":         "false",
+	"subJsonUserAgentRegex":      "",
+	"subClashAutoDetect":         "false",
+	"subClashUserAgentRegex":     "",
+	"subTitle":                   "",
+	"subSupportUrl":              "",
+	"subProfileMode":             SubProfileModeNone,
+	"subProfileUrl":              "",
+	"subAnnounce":                "",
+	"subEnableRouting":           "false",
+	"subRoutingRules":            "",
+	"subRoutingSource":           "custom", // LUCX-HOOK: RoscomVPN Happ profiles; custom = free-text rules
+	"subHideSettings":            "false",
+	"subHappAutoDetect":          "false",
+	"subHappProviderId":          "",
+	"subHappNewUrl":              "",
+	"subHappFallbackUrl":         "",
+	"subHappSubInfoColor":        "blue",
+	"subHappSubInfoText":         "",
+	"subHappSubInfoButtonText":   "",
+	"subHappSubInfoButtonLink":   "",
+	"subHappSubExpire":           "false",
+	"subHappSubExpireButtonLink": "",
+	"subHappNotificationExpire":  "false",
+	"subHappNoLimit":             "false",
+	"subHappAlwaysHwid":          "false",
+	"subHappTunMode":             "",
+	"subHappTunType":             "",
+	"subHappExcludeRoutes":       "",
+	"subHappExcludeApns":         "false",
+	"subHappColorProfile":        "",
+	"subHappPingType":            "",
+	"subHappAutoConnect":         "false",
+	"subHappAutoConnectType":     "lowestdelay",
+	"subHappPerAppMode":          "off",
+	"subHappPerAppList":          "",
+	"subHappLocalProxyAuth":      "auto",
+	"subIncyEnableRouting":       "false",
+	"subIncyRoutingRules":        "",
+	"subIncyAppAutoDetect":       "false",
+	"subIncyProfileDescription":  "",
+	"subIncySortOrder":           "",
+	"subIncySupportEmail":        "",
+	"subIncyAnnounceUrl":         "",
+	"subIncyPremiumUrl":          "",
+	"subIncyBannerText":          "",
+	"subIncyBannerButtonText":    "",
+	"subIncyBannerButtonUrl":     "",
+	"subIncyBannerBgColor":       "",
+	"subIncyBannerButtonColor":   "",
+	"subIncyHideUrl":             "",
+	"subIncyHideCheck":           "",
+	"subIncyNoLimitEnabled":      "",
+	"subIncyPerAppEnable":        "",
+	"subIncyPerAppMode":          "",
+	"subIncyPerAppList":          "",
+	"subIncyFragmentationEnable": "",
+	"subIncyFragmentLength":      "",
+	"subIncyFragmentInterval":    "",
+	"subIncyFragmentPackets":     "",
+	"subIncyNoisesEnable":        "",
+	"subIncyNoisesType":          "",
+	"subIncyNoisesPacket":        "",
+	"subIncyNoisesDelay":         "",
+	"subIncyResolveEnable":       "",
+	"subIncyResolveDnsDomain":    "",
+	"subIncyResolveDnsIp":        "",
+	"subListen":                  "",
+	"subPort":                    "2096",
+	"subPath":                    "/sub/",
+	"subDomain":                  "",
+	"subSiteUpstream":            "", // LUCX-HOOK: decoy site of the subscription server (lucx.342)
+	"webSiteUpstream":            "", // LUCX-HOOK: decoy page of the panel (lucx.342)
+	"subCertFile":                "",
+	"subKeyFile":                 "",
+	"externalSubUserAgent":       DefaultExternalSubUserAgent,
+	"subUpdates":                 "12",
+	"subEncrypt":                 "true",
+	"subURI":                     "",
+	"subJsonPath":                "/json/",
+	"subJsonURI":                 "",
+	"subClashEnable":             "false",
+	"subClashPath":               "/clash/",
+	"subClashURI":                "",
+	"subClashEnableRouting":      "false",
+	"subClashRules":              "",
+	// LUCX-HOOK: AmneziaWG conf / vpn:// subscription endpoint
+	"subAwgEnable": "true",
+	"subAwgPath":   "/awg/",
+	"subAwgURI":    "",
+	// END LUCX-HOOK
+	"subClashRemoteDNS":           "false",
 	"subJsonMux":                  "",
 	"subJsonRules":                "",
 	"subJsonRoutingRules":         "",
 	"subJsonDns":                  "",
 	"subJsonFinalMask":            "",
 	"subJsonObservatory":          "",
+	"subJsonClientWarp":           "", // LUCX-HOOK: client-side WARP in the JSON sub (lucx.342)
 	"subThemeDir":                 "",
 	"datepicker":                  "gregorian",
 	"warp":                        "",
@@ -253,6 +261,8 @@ var defaultValueMap = map[string]string{
 
 	// Consecutive failed observatory probes before an outbound.down event fires
 	"outboundDownThreshold": "3",
+
+	"nodeDownThreshold": "1",
 
 	// Email (SMTP) notifications
 	"smtpEnable":         "false",
@@ -784,6 +794,10 @@ func (s *SettingService) GetSubInfoNodeEnable() (bool, error) {
 	return s.getBool("subInfoNodeEnable")
 }
 
+func (s *SettingService) GetSubHostSortMode() (string, error) {
+	return s.getString("subHostSortMode")
+}
+
 func (s *SettingService) GetSubCalendarExpireInclusive() (bool, error) {
 	return s.getBool("subCalendarExpireInclusive")
 }
@@ -1219,6 +1233,21 @@ func (s *SettingService) GetSubDomain() (string, error) {
 	return s.getString("subDomain")
 }
 
+// LUCX-HOOK: decoy upstream settings (lucx.342)
+// GetWebSiteUpstream is a plain-HTTP decoy (host:port) the panel serves for
+// every URL outside its base path instead of a bare 404, so a scanner that
+// finds the panel port sees an ordinary page. Empty = stock behaviour.
+func (s *SettingService) GetWebSiteUpstream() (string, error) {
+	return s.getString("webSiteUpstream")
+}
+
+// GetSubSiteUpstream is a plain-HTTP site (host:port) the subscription server
+// shows for every request that is not a subscription (wrong host, unknown
+// path) instead of a bare 403/404. Empty = stock behaviour.
+func (s *SettingService) GetSubSiteUpstream() (string, error) {
+	return s.getString("subSiteUpstream")
+}
+
 func (s *SettingService) SetSubCertFile(subCertFile string) error {
 	return s.setString("subCertFile", subCertFile)
 }
@@ -1301,6 +1330,10 @@ func (s *SettingService) GetSubAwgURI() (string, error) {
 
 // END LUCX-HOOK
 
+func (s *SettingService) GetSubClashRemoteDNS() (bool, error) {
+	return s.getBool("subClashRemoteDNS")
+}
+
 func (s *SettingService) GetSubJsonMux() (string, error) {
 	return s.getString("subJsonMux")
 }
@@ -1323,6 +1356,11 @@ func (s *SettingService) GetSubJsonFinalMask() (string, error) {
 
 func (s *SettingService) GetSubJsonObservatory() (string, error) {
 	return s.getString("subJsonObservatory")
+}
+
+// LUCX-HOOK: subJsonClientWarp getter + save-time validation (lucx.342)
+func (s *SettingService) GetSubJsonClientWarp() (string, error) {
+	return s.getString("subJsonClientWarp")
 }
 
 func (s *SettingService) GetSubThemeDir() (string, error) {
@@ -1696,6 +1734,14 @@ func (s *SettingService) SetOutboundDownThreshold(value int) error {
 	return s.setInt("outboundDownThreshold", value)
 }
 
+func (s *SettingService) GetNodeDownThreshold() (int, error) {
+	return s.getInt("nodeDownThreshold")
+}
+
+func (s *SettingService) SetNodeDownThreshold(value int) error {
+	return s.setInt("nodeDownThreshold", value)
+}
+
 // SecretClears marks redacted secrets the user explicitly emptied. Without a
 // flag, a blank submitted secret means "unchanged" (the field is always served
 // blank to the browser) and the stored value is preserved.
@@ -1707,6 +1753,13 @@ type SecretClears struct {
 }
 
 func (s *SettingService) UpdateAllSetting(allSetting *entity.AllSetting, clears SecretClears) error {
+	switch allSetting.SubHostSortMode {
+	case "":
+		allSetting.SubHostSortMode = "inbound-first"
+	case "inbound-first", "hosts-first":
+	default:
+		return errors.New("subscription host sort mode must be inbound-first or hosts-first")
+	}
 	switch allSetting.SubProfileMode {
 	case "", SubProfileModeNone, SubProfileModeBuiltin, SubProfileModeCustom:
 		allSetting.SubProfileMode = effectiveSubProfileMode(allSetting.SubProfileMode, allSetting.SubProfileUrl)
@@ -1723,6 +1776,9 @@ func (s *SettingService) UpdateAllSetting(allSetting *entity.AllSetting, clears 
 		return err
 	}
 	if err := validateSubJsonDnsSetting(allSetting); err != nil {
+		return err
+	}
+	if err := validateSubJsonClientWarpSetting(allSetting); err != nil {
 		return err
 	}
 	if err := validateFinalMaskJSONSalamander(allSetting.SubJsonFinalMask); err != nil {
@@ -1918,6 +1974,16 @@ func validateSubJsonDnsSetting(allSetting *entity.AllSetting) error {
 		}
 	}
 	allSetting.SubJsonDns = value
+	return nil
+}
+
+// Same parser as the sub server, so a saved value is never dropped at request time.
+func validateSubJsonClientWarpSetting(allSetting *entity.AllSetting) error {
+	value := strings.TrimSpace(allSetting.SubJsonClientWarp)
+	if _, err := clientwarp.Parse(value); err != nil {
+		return common.NewError("JSON subscription client WARP is invalid:", err.Error())
+	}
+	allSetting.SubJsonClientWarp = value
 	return nil
 }
 
