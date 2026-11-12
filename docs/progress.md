@@ -1,5 +1,13 @@
 # LucX-UI — Прогресс
 
+## lucx.361 - Fork sync with upstream lucx.360 (2026-11-12)
+
+`contrib` merged with upstream `main` (lucx.360, Go 1.27.4). Our own Incy AmneziaWG fix was dropped in favour of the upstream one (`incyAwgExport`); the Incy routing editor stays.
+
+**lucxVersion:** lucx.361
+
+---
+
 ## lucx.298 - Visual routing editor for Incy, geo picker for Incy and Happ (2026-10-14)
 
 Settings → Subscription → Incy → Routing gets the same visual rule generator Happ has. Incy reads the Happ routing profile JSON unchanged ([docs](https://docs.incy.cc/en/routing/)), so `HappRoutingEditorModal` / `happRoutingEditor.ts` take a `scheme` (`happ` | `incy`). Only the deeplink prefix (`incy://routing/{add|onadd}/`, `incy://routing/off`) and the title/error strings change.
