@@ -28,7 +28,7 @@ DIR_CONFIG="$DIR_PROJECT/config"
 
 DB="$DIR_DB/$SHELL_SHORT_NAME.db"
 ARCHITECTURE=""
-LUCX_REPO="AlexeyLCP/lucx-ui"
+LUCX_REPO="maksimkurb/lucx-ui"
 # Pin a fixed tag with LUCX_KEENETIC_TAG=v3.10.2-lucx.314, otherwise latest.
 LUCX_TAG="${LUCX_KEENETIC_TAG:-}"
 

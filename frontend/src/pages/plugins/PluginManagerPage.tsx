@@ -102,13 +102,13 @@ export default function PluginManagerPage() {
               description={
                 <Space split>
                   <Typography.Link
-                    href="https://github.com/AlexeyLCP/lucx-ui/blob/main/docs/plugin-manager.md"
+                    href="https://github.com/maksimkurb/lucx-ui/blob/main/docs/plugin-manager.md"
                     target="_blank"
                   >
                     {t('pages.plugins.docsLink')}
                   </Typography.Link>
                   <Typography.Link
-                    href="https://github.com/AlexeyLCP/lucx-ui/blob/main/docs/plugin-prompt.md"
+                    href="https://github.com/maksimkurb/lucx-ui/blob/main/docs/plugin-prompt.md"
                     target="_blank"
                   >
                     {t('pages.plugins.promptLink')}

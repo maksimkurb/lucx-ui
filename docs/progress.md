@@ -1095,7 +1095,7 @@ lucxVersion: lucx.317
 
 ## 2026-10-25 - security reporting channel for the fork
 
-Private vulnerability reporting enabled on `AlexeyLCP/lucx-ui` (Security tab).
+Private vulnerability reporting enabled on `maksimkurb/lucx-ui` (Security tab).
 `SECURITY.md` rewritten: LucX-specific code (`internal/awg/`, `internal/lucx/`,
 LUCX-HOOK blocks, LucX `bin/` scripts) → private channel on this repo;
 vanilla 3x-ui code → upstream policy (ho3ein.sanaei@gmail.com). Prompted by a
@@ -1104,7 +1104,7 @@ upstream contact. Ships with lucx.319 (was local-only).
 
 New rule (push + release gates for private reports): `.agents/06-workflow.md`
 step 11.5 + release step 0b + `bin/pre-push` hook now also check repo private
-advisories via `gh api repos/AlexeyLCP/lucx-ui/security-advisories` (non-
+advisories via `gh api repos/maksimkurb/lucx-ui/security-advisories` (non-
 `published` state). Push: warn only (the advisory fix must be pushable); tag:
 hard gate — release ships only with the fix or reporter-approved postponement.
 Hook copied to `.git/hooks/pre-push` on the dev machine. Reporter (XaksFlaX)

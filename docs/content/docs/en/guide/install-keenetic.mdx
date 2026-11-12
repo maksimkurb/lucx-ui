@@ -27,7 +27,7 @@ opkg update && opkg install curl bash
 ## Install LucX-UI
 
 ```bash
-curl -O https://raw.githubusercontent.com/AlexeyLCP/lucx-ui/main/bin/lucx-keenetic.sh
+curl -O https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/bin/lucx-keenetic.sh
 bash lucx-keenetic.sh install
 ```
 
@@ -36,7 +36,7 @@ The script:
 - installs Entware dependencies (`curl tar wget-ssl ca-bundle sqlite3-cli jq
   openssl-util ip-full wireguard-tools iptables`);
 - downloads the LucX-UI tarball for your architecture from
-  [GitHub releases](https://github.com/AlexeyLCP/lucx-ui/releases) and verifies
+  [GitHub releases](https://github.com/maksimkurb/lucx-ui/releases) and verifies
   its checksum;
 - unpacks to `/opt/etc/x-ui` (SQLite DB at `/opt/etc/x-ui/db/x-ui.db`),
 - fetches Xray geodata (`geoip.dat` / `geosite.dat`),

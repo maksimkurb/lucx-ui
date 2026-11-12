@@ -253,7 +253,7 @@ bash <(curl -fL https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/instal
 
 ```bash
 opkg update && opkg install curl bash
-curl -O https://raw.githubusercontent.com/AlexeyLCP/lucx-ui/main/bin/lucx-keenetic.sh
+curl -O https://raw.githubusercontent.com/maksimkurb/lucx-ui/main/bin/lucx-keenetic.sh
 bash lucx-keenetic.sh install
 ```
 

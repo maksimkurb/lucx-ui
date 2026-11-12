@@ -26,9 +26,9 @@ Extracted from AGENTS.md. This file is project law.
 11. STATUS → Output `git status` and `git log --oneline -15` after commits
 11.5. CHECK PR/ISSUES/ADVISORIES → BEFORE every push ALWAYS check open PRs, issues,
               and private advisories (GitHub Private vulnerability reporting):
-              `gh pr list --repo AlexeyLCP/lucx-ui --state open`
-              `gh issue list --repo AlexeyLCP/lucx-ui --state open`
-              `gh api repos/AlexeyLCP/lucx-ui/security-advisories --jq '[.[] | select(.state != "published")]'`
+              `gh pr list --repo maksimkurb/lucx-ui --state open`
+              `gh issue list --repo maksimkurb/lucx-ui --state open`
+              `gh api repos/maksimkurb/lucx-ui/security-advisories --jq '[.[] | select(.state != "published")]'`
               If there are unhandled PRs (not yours) or issues — do NOT push
               immediately. Tell the user: which PRs/issues are open, by whom, and
               offer: (a) review/merge the PR first, (b) fix the issue first,
@@ -112,7 +112,7 @@ git log --oneline v3.7.0-lucx.$((N-1))..HEAD
 # Empty list except the previous release’s docs tail — OK.
 
 # 0b. REQUIRED before tagging — private advisories (GitHub PVR), rule of 2026-10-25:
-gh api repos/AlexeyLCP/lucx-ui/security-advisories --jq '[.[] | select(.state != "published")]'
+gh api repos/maksimkurb/lucx-ui/security-advisories --jq '[.[] | select(.state != "published")]'
 #    Any output = an open private report → tag ONLY with the fix for it
 #    included in THIS release (fix commits get in before the tag; the
 #    advisory is published after the fixed release ships), or after the
