@@ -7,6 +7,11 @@
 package tunnel
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -38,8 +43,31 @@ type CsqttConfig struct {
 	VkHashes   string `json:"vkHashes"`
 	ConfigDir  string `json:"configDir"`
 
+	// VkTokenInLink makes every panel-managed member link carry the VK access
+	// token stored in the CSQTT server, so the client app creates its own VK
+	// calls. VkHashes take precedence (CSQTT accepts only one of the two per
+	// member), see MemberVkToken.
+	VkTokenInLink bool `json:"vkTokenInLink"`
+	// MemberGroup is the name (or id) of a CSQTT client group that every
+	// panel-managed member is placed in; the group's routing rule, worker count
+	// and VK token override then apply to those members. Empty leaves the
+	// members' group untouched.
+	MemberGroup string `json:"memberGroup"`
+
 	RouteThroughXray bool   `json:"routeThroughXray"`
 	OutboundTag      string `json:"outboundTag"`
+}
+
+// MemberVkHashes is VkHashes normalised to the comma-separated form the CSQTT
+// web API accepts for a member (no whitespace, at most six hashes).
+func (c CsqttConfig) MemberVkHashes() string {
+	return strings.Join(csqttHashList(c.VkHashes), ",")
+}
+
+// MemberVkToken reports whether member links carry the VK token: requested
+// and not overridden by explicit VK call hashes.
+func (c CsqttConfig) MemberVkToken() bool {
+	return c.VkTokenInLink && c.MemberVkHashes() == ""
 }
 
 func DefaultCsqttConfig() CsqttConfig {
@@ -149,9 +177,7 @@ func (c CsqttConfig) BuildArgs() []string {
 	if p := strings.TrimSpace(c.Password); p != "" {
 		args = append(args, "--password", p)
 	}
-	if d := strings.TrimSpace(c.DeviceID); d != "" {
-		args = append(args, "--device-id", d)
-	}
+	// upstream v2.5.0 removed the --device-id flag; device binding is server-side now.
 	if w := strings.TrimSpace(c.WebPass); w != "" {
 		args = append(args, "--web-pass", w)
 	}
@@ -163,7 +189,7 @@ func syncCsqttPasswordStamp(dir, password string) {
 	if dir == "" || password == "" {
 		return
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := mkdirPrivate(dir); err != nil {
 		return
 	}
 	stamp := filepath.Join(dir, "lucx-password")
@@ -214,10 +240,45 @@ func csqttHashList(raw string) []string {
 	return out
 }
 
+// csqttCipherSeed is upstream amurcanov/csqtt v2.5.0's fixed link cipher seed.
+const csqttCipherSeed = "csqtt-chiper-key"
+
+func csqttQEscape(s string) string {
+	// Upstream URL-encodes each value byte-wise keeping -_.~; a space must be
+	// %20 because the client decodes a raw + as a literal plus.
+	return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
+}
+
+// csqttEncryptLink seals the share payload like upstream v2.5.0
+// (web_panel.rs encrypt_csqtt_link): key = SHA256(seed),
+// IV = HMAC-SHA256(key, payload)[:12] — deterministic, AES-256-GCM,
+// output = csqtt:// + base64url(IV || ciphertext || tag). On crypto failure it
+// falls back to the plaintext base64 form the client can still decrypt-then-reject.
+func csqttEncryptLink(payload string) string {
+	b64url := base64.RawURLEncoding
+	keyHash := sha256.Sum256([]byte(csqttCipherSeed))
+	block, err := aes.NewCipher(keyHash[:])
+	if err != nil {
+		return "csqtt://" + b64url.EncodeToString([]byte(payload))
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "csqtt://" + b64url.EncodeToString([]byte(payload))
+	}
+	mac := hmac.New(sha256.New, keyHash[:])
+	mac.Write([]byte(payload))
+	iv := mac.Sum(nil)[:gcm.NonceSize()]
+	sealed := gcm.Seal(nil, iv, []byte(payload), nil)
+	out := make([]byte, 0, len(iv)+len(sealed))
+	out = append(out, iv...)
+	out = append(out, sealed...)
+	return "csqtt://" + b64url.EncodeToString(out)
+}
+
 func csqttHashesParam(hashes []string) string {
 	parts := make([]string, len(hashes))
 	for i, h := range hashes {
-		parts[i] = strings.ReplaceAll(url.QueryEscape(h), "+", "%20")
+		parts[i] = csqttQEscape(h)
 	}
 	return strings.Join(parts, "+")
 }
@@ -228,16 +289,13 @@ func (c CsqttConfig) ClientURI() string {
 	if host == "" || pass == "" {
 		return ""
 	}
-	q := url.Values{}
-	q.Set("v", "2")
-	q.Set("host", host)
-	q.Set("peer", strconv.Itoa(c.publicPort()))
-	q.Set("password", pass)
-	uri := "csqtt://connect?" + q.Encode()
+	payload := "connect?v=2&host=" + csqttQEscape(host) +
+		"&peer=" + strconv.Itoa(c.publicPort()) +
+		"&password=" + csqttQEscape(pass)
 	if hashes := csqttHashList(c.VkHashes); len(hashes) > 0 {
-		uri += "&hashes=" + csqttHashesParam(hashes)
+		payload += "&hashes=" + csqttHashesParam(hashes)
 	}
-	return uri
+	return csqttEncryptLink(payload)
 }
 
 func CsqttListenPort(cfg CsqttConfig) int {

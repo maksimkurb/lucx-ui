@@ -1,6 +1,5 @@
 import { z } from 'zod';
-
-import { normalizeAwgTimer } from '@/lib/awg/timer';
+import { OptionalClientKeepAliveSchema } from '@/schemas/primitives/keepalive';
 
 const nullableStringArray = z
   .array(z.string())
@@ -33,10 +32,13 @@ export const ClientRecordSchema = z
     auth: z.string().optional(),
     flow: z.string().optional(),
     security: z.string().optional(),
+    // Host rules the client is bound to; null/omitted preserves, empty clears.
+    clientHostRuleIds: z.array(z.number().int()).nullable().optional(),
     totalGB: z.number().optional(),
     expiryTime: z.number().optional(),
     limitIp: z.number().optional(),
     limitHwid: z.number().optional(),
+    neverLogIps: z.boolean().optional(), // LUCX-HOOK (lucx.342)
     tgId: z.union([z.number(), z.string()]).optional(),
     group: z.string().optional(),
     comment: z.string().optional(),
@@ -54,8 +56,7 @@ export const ClientRecordSchema = z
     publicKey: z.string().optional(),
     allowedIPs: z.string().optional(),
     preSharedKey: z.string().optional(),
-    // LUCX-HOOK: number or AWG3 range string ("25" / "15-25"); '0' = off
-    keepAlive: z.preprocess(normalizeAwgTimer, z.string()).optional(),
+    keepAlive: OptionalClientKeepAliveSchema,
     forwardedPorts: z.string().optional(),
     secret: z.string().optional(),
     adTag: z.string().optional(),
@@ -137,6 +138,10 @@ export const InboundOptionSchema = z
     wgPublicKey: z.string().optional(),
     wgMtu: z.number().optional(),
     wgDns: z.string().optional(),
+    // LUCX-HOOK: wgobfs — kernel-WG obfuscation presets (JSON) and wgosocks
+    // inbound settings (JSON) for phobos:// exports.
+    wgObfuscation: z.string().optional(),
+    wgosocksConfig: z.string().optional(),
     awgServer: AwgServerOptionSchema.nullable().optional(),
     tuicServer: TuicServerOptionSchema.nullable().optional(),
     // LUCX-HOOK: AWG — server public key is reused via wgPublicKey (Curve25519);
@@ -336,6 +341,8 @@ export const ClientFormSchema = z.object({
   auth: z.string(),
   flow: z.string(),
   security: z.string(),
+  // Host rules the client is bound to; null/omitted preserves, empty clears.
+  clientHostRuleIds: z.array(z.number().int()).nullable().optional(),
   reverseTag: z.string(),
   totalGB: z.number().min(0),
   delayedStart: z.boolean(),
@@ -348,6 +355,7 @@ export const ClientFormSchema = z.object({
   trafficResetDay: z.number().int().min(1).max(31),
   limitIp: z.number().int().min(0),
   limitHwid: z.number().int().min(0),
+  neverLogIps: z.boolean(), // LUCX-HOOK (lucx.342)
   tgId: z.number().int().min(0),
   group: z.string(),
   comment: z.string(),

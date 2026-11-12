@@ -167,7 +167,7 @@ lucx_fetch_geofiles() {
             echo -e "${green}Downloading geodata...${plain}"
         fi
         fetched=1
-        if ! curl -fLRo "${dest}/${name}" --retry 5 --retry-delay 3 --connect-timeout 15 --max-time 180 "$url"; then
+        if ! curl -fLRo "${dest}/${name}" --retry 5 --retry-delay 3 --connect-timeout 15 --max-time 600 "$url"; then
             echo -e "${yellow}${name}: download failed${plain}"
             rm -f "${dest}/${name}"
             case "$name" in
@@ -183,12 +183,52 @@ geoip_RU.dat|https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/lat
 geosite_RU.dat|https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat
 geoip_ROSCOM.dat|https://github.com/hydraponique/roscomvpn-geoip/releases/latest/download/geoip.dat
 geosite_ROSCOM.dat|https://github.com/hydraponique/roscomvpn-geosite/releases/latest/download/geosite.dat
+geoip_GA.dat|https://raw.githubusercontent.com/Ground-Zerro/Geo-Aggregator/main/geodat/geoip_GA.dat
+geosite_GA.dat|https://raw.githubusercontent.com/Ground-Zerro/Geo-Aggregator/main/geodat/geosite_GA.dat
 GEO
     if [[ "$fetched" -eq 0 ]]; then
         echo -e "${green}geodata already present — skip${plain}"
     fi
     return "$failed"
 }
+
+# LUCX-HOOK: DB-IP Lite IP databases for the Devices column (provider / country
+# / city). Free, CC BY 4.0, plain HTTPS — no account or key. Saved to the panel's
+# database folder, which updates keep and Docker persists. Skipped when already
+# present; the panel refreshes them itself every month, and `x-ui update-ipdb`
+# (or menu 27 → 7) updates them on demand. Never fatal: without them the panel
+# just shows IPs without labels and downloads them later.
+lucx_fetch_ipdb() {
+    local dir="${XUI_DB_FOLDER:-/etc/x-ui}" name dest tmp month got
+    local this_month last_month
+    mkdir -p "$dir" || return 0
+    this_month=$(date -u +%Y-%m)
+    last_month=$(date -u -d "$(date -u +%Y-%m-01) -1 month" +%Y-%m 2> /dev/null)
+    for name in dbip-asn-lite dbip-city-lite; do
+        dest="${dir}/${name}.mmdb"
+        [[ -s "$dest" ]] && continue
+        echo -e "${green}Downloading IP database ${name}...${plain}"
+        tmp="${dest}.tmp.$$"
+        got=""
+        for month in "$this_month" $last_month; do
+            rm -f "$tmp"
+            if curl -sSfL --retry 3 --retry-delay 3 --connect-timeout 15 --max-time 900 \
+                "https://download.db-ip.com/free/${name}-${month}.mmdb.gz" 2> /dev/null | gzip -dc > "$tmp" 2> /dev/null &&
+                [[ -s "$tmp" ]] && tail -c 131072 "$tmp" | grep -aq 'MaxMind.com'; then
+                got="$month"
+                break
+            fi
+        done
+        if [[ -n "$got" ]] && chmod 644 "$tmp" && mv -f "$tmp" "$dest"; then
+            echo -e "${green}${name}.mmdb: ${got}${plain}"
+        else
+            rm -f "$tmp"
+            echo -e "${yellow}${name}.mmdb: download failed — the panel will retry by itself${plain}"
+        fi
+    done
+    return 0
+}
+# END LUCX-HOOK
 
 lucx_fetch_sidecars() {
     local dest="${1:-bin}"
@@ -200,7 +240,7 @@ lucx_fetch_sidecars() {
     fi
     mkdir -p "$dest"
     local name gz tmp fetched=0 skipped=0
-    for name in caddy-naive-linux-${a} naive-client-linux-${a} olcrtc-linux-${a} qwdtt-linux-${a} csqtt-linux-${a} openflux-linux-${a} mieru-linux-${a} mieru-client-linux-${a} trusttunnel-linux-${a} trusttunnel-client-linux-${a} anytls-linux-${a} tproxy-linux-${a} mtproxy-linux-${a} caddy-layer4-linux-${a}; do
+    for name in caddy-naive-linux-${a} naive-client-linux-${a} olcrtc-linux-${a} qwdtt-linux-${a} csqtt-linux-${a} masterdns-linux-${a} aivpn-linux-${a} openflux-linux-${a} mieru-linux-${a} mieru-client-linux-${a} trusttunnel-linux-${a} trusttunnel-client-linux-${a} anytls-linux-${a} tproxy-linux-${a} mtproxy-linux-${a} caddy-layer4-linux-${a}; do
         if lucx_pin_matches "$dest" "$name"; then
             skipped=$((skipped + 1))
             continue
@@ -1241,6 +1281,7 @@ prompt_and_setup_ssl() {
             else
                 echo -e "${red}SSL certificate setup failed for domain mode.${plain}"
                 SSL_HOST="${server_ip}"
+                SSL_SCHEME="http"
             fi
             ;;
         2)
@@ -1284,6 +1325,7 @@ prompt_and_setup_ssl() {
             else
                 echo -e "${red}✗ IP certificate setup failed. Please check port 80 is open.${plain}"
                 SSL_HOST="${server_ip}"
+                SSL_SCHEME="http"
             fi
             ;;
         3)
@@ -1909,7 +1951,10 @@ ReadWritePaths=${line}
 ReadWriteDirectories=${line}
 # Repeat the full set: a drop-in CapabilityBoundingSet replaces the unit list.
 # CAP_SETUID/CAP_SETGID: mtproxy setgroups()+setuid() to lucx-mtproxy.
-CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_SETUID CAP_SETGID
+# CAP_CHOWN: the routed anytls child runs under that uid and reads its
+# cert/key copies and data dir, so the panel chowns them.
+# CAP_KILL: the panel stops/signals sidecars that run under that uid.
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_SETUID CAP_SETGID CAP_CHOWN CAP_KILL
 EOF
     if [[ "$(_xui_systemd_major_version)" -ge 239 ]]; then
         cat >> "$temp_file" << 'EOF'
@@ -2176,6 +2221,7 @@ install_x-ui() {
     chmod +x x-ui.sh
     # LUCX-HOOK: geo before panel start. Slim tarball left first start without .dat.
     lucx_fetch_geofiles bin || echo -e "${yellow}geodata incomplete — update later via x-ui menu${plain}"
+    lucx_fetch_ipdb
     # END LUCX-HOOK
 
     # Check the system's architecture and rename the file accordingly.
@@ -2228,6 +2274,14 @@ install_x-ui() {
         fi
     fi
     trap - EXIT INT TERM
+
+    # LUCX-HOOK: normalize ownership of the fresh tree. The release tarball
+    # stores the CI runner's uid (GitHub packs it as user "runner", and tar
+    # extraction as root keeps --same-owner), while the sandboxed panel has no
+    # CAP_FOWNER and cannot chmod a foreign-owned sidecar binary -- every
+    # reconcile then fails with "chmod ... operation not permitted". Runs
+    # after the cp -a restore above, which also preserves ownership.
+    chown -R root:root . 2> /dev/null
 
     rm -f bin/tuic-server bin/tuic-server-* > /dev/null 2>&1 || true
     rm -rf bin/tuic > /dev/null 2>&1 || true

@@ -12,6 +12,7 @@ export const ProtocolSchema = z.enum([
   'tunnel',
   'tun',
   'mtproto',
+  'telemt', // LUCX-HOOK: Telemt sidecar
   'amneziawg',
   'tuic',
   'awg', // LUCX-HOOK: AmneziaWG sidecar protocol
@@ -19,10 +20,13 @@ export const ProtocolSchema = z.enum([
   'olcrtc', // LUCX-HOOK: olcRTC sidecar
   'qwdtt', // LUCX-HOOK: qWDTT sidecar
   'csqtt', // LUCX-HOOK: CSQTT sidecar
+  'masterdns', // LUCX-HOOK: MasterDNSVPN DNS-tunnel sidecar
+  'aivpn', // LUCX-HOOK: AIVPN anti-DPI UDP VPN sidecar
   'openflux', // LUCX-HOOK: OpenFlux sidecar
   'mieru', // LUCX-HOOK: mieru sidecar
   'trusttunnel', // LUCX-HOOK: TrustTunnel sidecar
   'anytls', // LUCX-HOOK: AnyTLS sidecar
+  'wgosocks', // LUCX-HOOK: wgobfs SOCKS5-exit sidecar
   'tproxy', // LUCX-HOOK: Telegram WEB proxy
   'cover', // LUCX-HOOK: camouflage site on :80/:443
   'gateway', // LUCX-HOOK: nginx SNI mux,
@@ -48,6 +52,7 @@ export const Protocols = Object.freeze({
   TUNNEL: 'tunnel',
   TUN: 'tun',
   MTPROTO: 'mtproto',
+  TELEMT: 'telemt', // LUCX-HOOK: Telemt sidecar
   AMNEZIAWG: 'amneziawg',
   TUIC: 'tuic',
   AWG: 'awg', // LUCX-HOOK: AmneziaWG
@@ -55,10 +60,13 @@ export const Protocols = Object.freeze({
   OLCRTC: 'olcrtc', // LUCX-HOOK: olcRTC
   QWDTT: 'qwdtt', // LUCX-HOOK: qWDTT
   CSQTT: 'csqtt', // LUCX-HOOK: CSQTT
+  MASTERDNS: 'masterdns', // LUCX-HOOK: MasterDNSVPN
+  AIVPN: 'aivpn', // LUCX-HOOK: AIVPN
   OPENFLUX: 'openflux', // LUCX-HOOK: OpenFlux
   MIERU: 'mieru', // LUCX-HOOK: mieru
   TRUSTTUNNEL: 'trusttunnel', // LUCX-HOOK: TrustTunnel
   ANYTLS: 'anytls', // LUCX-HOOK: AnyTLS
+  Wgosocks: 'wgosocks', // LUCX-HOOK: wgobfs SOCKS5-exit
   TPROXY: 'tproxy', // LUCX-HOOK: Telegram WEB proxy
   COVER: 'cover', // LUCX-HOOK: camouflage site
   GATEWAY: 'gateway', // LUCX-HOOK: nginx SNI mux,

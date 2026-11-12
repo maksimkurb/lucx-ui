@@ -158,6 +158,9 @@ func firstFieldInt(line string) int64 {
 	return 0
 }
 
+// shortcut: /proc/<pid>/io rchar/wchar counts every read+write syscall, so a
+// non-routed relay meters roughly its 2x network bytes plus process I/O (logs);
+// routed inbounds do not use these deltas for accounting (routedTags guard).
 func (m *Manager) collectProcIO(key, tag string) SidecarTraffic {
 	d := SidecarTraffic{Tag: tag}
 	if !m.IsRunningKey(key) {
@@ -200,4 +203,31 @@ func (m *Manager) CollectQwdttTraffic(tag string) SidecarTraffic {
 		d.Sessions = 1
 	}
 	return d
+}
+
+// CollectWgosocksTraffic meters one wgosocks inbound via /proc/<pid>/io
+// deltas (same relay shortcut as olcRTC/tproxy).
+func (m *Manager) CollectWgosocksTraffic(key, tag string) SidecarTraffic {
+	return m.collectProcIO(key, tag)
+}
+
+// CollectCsqttTraffic meters the singleton csqtt core via /proc/<pid>/io
+// deltas (same relay shortcut as olcRTC/tproxy).
+func (m *Manager) CollectCsqttTraffic(tag string) SidecarTraffic {
+	return m.collectProcIO(CsqttKey, tag)
+}
+
+// CollectMasterdnsTraffic meters the singleton masterdns core (same shortcut).
+func (m *Manager) CollectMasterdnsTraffic(tag string) SidecarTraffic {
+	return m.collectProcIO(MasterdnsKey, tag)
+}
+
+// CollectAivpnTraffic meters the singleton aivpn core (same shortcut).
+func (m *Manager) CollectAivpnTraffic(tag string) SidecarTraffic {
+	return m.collectProcIO(AivpnKey, tag)
+}
+
+// CollectOpenfluxTraffic meters one openflux inbound (per-inbound key).
+func (m *Manager) CollectOpenfluxTraffic(key, tag string) SidecarTraffic {
+	return m.collectProcIO(key, tag)
 }

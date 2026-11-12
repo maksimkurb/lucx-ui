@@ -9,6 +9,7 @@ package job
 import (
 	"encoding/json"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
@@ -47,6 +48,20 @@ func (j *TunnelJob) Run() {
 	j.collectOlcrtcTraffic()
 	j.collectQwdttTraffic()
 	j.collectTproxyTraffic()
+	j.collectWgosocksTraffic()
+	j.collectCsqttTraffic()
+	j.collectMasterdnsTraffic()
+	j.collectOpenfluxTraffic()
+	j.collectAivpnTraffic()
+	if inbounds, err := j.inboundService.GetAllInbounds(); err == nil {
+		telemt := make([]tunnel.Instance, 0)
+		for _, ib := range inbounds {
+			if insts, ok := tunnel.TelemtInstancesFromInbound(ib); ok {
+				telemt = append(telemt, insts...)
+			}
+		}
+		tunnel.GetManager().ReconcileWanted(tunnel.Telemt, "telemt-", "telemt", telemt)
+	}
 }
 
 func (j *TunnelJob) collectNaiveTraffic() {
@@ -59,7 +74,6 @@ func (j *TunnelJob) collectNaiveTraffic() {
 		logger.Warning("tunnel job: get inbounds failed:", err)
 		return
 	}
-
 	var targets []tunnel.NaiveScrapeTarget
 	routedTags := make(map[string]bool)
 	emailsByTag := map[string][]string{}
@@ -151,6 +165,10 @@ func (j *TunnelJob) collectNaiveTraffic() {
 		if d.Tag != "" {
 			extra = append(extra, d.Tag)
 		}
+	}
+	recordSidecarLive(emailsByTag, onlineEmails, now.UnixMilli())
+	for _, d := range deltas {
+		service.RecordLiveInbound(d.Email, d.Tag, d.Up+d.Down, now.UnixMilli())
 	}
 	j.inboundService.RefreshLocalOnlineClients(onlineEmails, tunnel.LiveTags(emailsByTag, onlineEmails, extra))
 }
@@ -258,6 +276,10 @@ func (j *TunnelJob) collectMieruTraffic() {
 			extra = append(extra, d.Tag)
 		}
 	}
+	recordSidecarLive(emailsByTag, onlineEmails, now.UnixMilli())
+	for _, d := range deltas {
+		service.RecordLiveInbound(d.Email, d.Tag, d.Up+d.Down, now.UnixMilli())
+	}
 	j.inboundService.RefreshLocalOnlineClients(onlineEmails, tunnel.LiveTags(emailsByTag, onlineEmails, extra))
 }
 
@@ -273,6 +295,8 @@ func (j *TunnelJob) collectTrustTunnelTraffic() {
 	var targets []tunnel.TrustTunnelScrapeTarget
 	routedTags := map[string]bool{}
 	emailsByTag := map[string][]string{}
+	userMaps := map[string]map[string]string{}
+	secret, _ := (&service.SettingService{}).GetSecret()
 	for _, ib := range inbounds {
 		if ib == nil || ib.Protocol != model.TrustTunnel || !ib.Enable || ib.NodeID != nil {
 			continue
@@ -282,6 +306,7 @@ func (j *TunnelJob) collectTrustTunnelTraffic() {
 			continue
 		}
 		emailsByTag[tag] = trustTunnelEmailsForInbound(ib)
+		userMaps[tag] = mieruUserMapForInbound(secret, ib) // credentials username → email
 		cfg, ok := tunnel.TrustTunnelConfigFromInbound(ib)
 		if ok && cfg.RouteThroughXray {
 			routedTags[tag] = true
@@ -316,6 +341,12 @@ func (j *TunnelJob) collectTrustTunnelTraffic() {
 				Down:      d.Down,
 			})
 		}
+		if d.PerUser {
+			ct, online := trustTunnelPerUser(d, userMaps[d.Tag])
+			clientTraffics = append(clientTraffics, ct...)
+			onlineEmails = append(onlineEmails, online...)
+			continue
+		}
 		if !live {
 			continue
 		}
@@ -349,7 +380,11 @@ func (j *TunnelJob) collectAnytlsTraffic() {
 		return
 	}
 	var targets []tunnel.AnytlsScrapeTarget
+	routedTags := map[string]bool{}
 	emailsByTag := map[string][]string{}
+	perUserTags := map[string]bool{}
+	clientTraffics := make([]*xray.ClientTraffic, 0)
+	onlineEmails := make([]string, 0)
 	for _, ib := range inbounds {
 		if ib == nil || ib.Protocol != model.Anytls || !ib.Enable || ib.NodeID != nil {
 			continue
@@ -361,6 +396,17 @@ func (j *TunnelJob) collectAnytlsTraffic() {
 		cfg, ok := tunnel.AnytlsConfigFromInbound(ib)
 		if !ok {
 			continue
+		}
+		if st, ok := tunnel.ReadAnytlsStats(ib.Id); ok {
+			perUserTags[tag] = true
+			ct, online := anytlsUserDeltas(ib.Id, tag, st, anytlsEmailsForInbound(ib))
+			clientTraffics = append(clientTraffics, ct...)
+			onlineEmails = append(onlineEmails, online...)
+		}
+		// Routed inbounds are already metered inbound>>>tag by the injected
+		// SOCKS bridge (injectAnytlsEgress); scraping them too double-counts.
+		if cfg.RouteThroughXray && cfg.RouteXrayPort > 0 {
+			routedTags[tag] = true
 		}
 		emailsByTag[tag] = anytlsEmailsForInbound(ib)
 		targets = append(targets, tunnel.AnytlsScrapeTarget{
@@ -374,15 +420,13 @@ func (j *TunnelJob) collectAnytlsTraffic() {
 	}
 	snaps := tunnel.GetManager().CollectAnytlsTraffic(targets)
 	traffics := make([]*xray.Traffic, 0, len(snaps))
-	clientTraffics := make([]*xray.ClientTraffic, 0)
-	onlineEmails := make([]string, 0)
 	liveTags := make([]string, 0)
 	for _, d := range snaps {
 		live := d.Sessions > 0 || d.Up > 0 || d.Down > 0
 		if live {
 			liveTags = append(liveTags, d.Tag)
 		}
-		if d.Up > 0 || d.Down > 0 {
+		if !routedTags[d.Tag] && (d.Up > 0 || d.Down > 0) {
 			traffics = append(traffics, &xray.Traffic{
 				IsInbound: true,
 				Tag:       d.Tag,
@@ -390,7 +434,7 @@ func (j *TunnelJob) collectAnytlsTraffic() {
 				Down:      d.Down,
 			})
 		}
-		if !live {
+		if !live || perUserTags[d.Tag] {
 			continue
 		}
 		email := tunnel.TrustTunnelSoleClient(emailsByTag[d.Tag])
@@ -423,6 +467,7 @@ func (j *TunnelJob) collectOlcrtcTraffic() {
 		return
 	}
 	var snaps []tunnel.SidecarTraffic
+	routedTags := map[string]bool{}
 	emailsByTag := map[string][]string{}
 	for _, ib := range inbounds {
 		if ib == nil || ib.Protocol != model.Olcrtc || !ib.Enable || ib.NodeID != nil {
@@ -432,10 +477,15 @@ func (j *TunnelJob) collectOlcrtcTraffic() {
 		if tag == "" {
 			continue
 		}
+		if cfg, ok := tunnel.OlcrtcConfigFromInbound(ib); ok && cfg.RouteThroughXray && cfg.RouteXrayPort > 0 {
+			// Routed inbounds are already metered inbound>>>tag via the SOCKS
+			// bridge (injectOlcrtcEgress); collecting them again doubles them.
+			routedTags[tag] = true
+		}
 		emailsByTag[tag] = anytlsEmailsForInbound(ib)
 		snaps = append(snaps, tunnel.GetManager().CollectOlcrtcTraffic(tunnel.OlcrtcKey(ib.Id), tag))
 	}
-	j.commitSidecarScrape("olcrtc", snaps, emailsByTag)
+	j.commitSidecarScrape("olcrtc", snaps, emailsByTag, routedTags)
 }
 
 func (j *TunnelJob) collectQwdttTraffic() {
@@ -445,6 +495,7 @@ func (j *TunnelJob) collectQwdttTraffic() {
 		return
 	}
 	var snaps []tunnel.SidecarTraffic
+	routedTags := map[string]bool{}
 	emailsByTag := map[string][]string{}
 	for _, ib := range inbounds {
 		if ib == nil || ib.Protocol != model.Qwdtt || !ib.Enable || ib.NodeID != nil {
@@ -454,10 +505,16 @@ func (j *TunnelJob) collectQwdttTraffic() {
 		if tag == "" {
 			continue
 		}
+		if cfg, ok := tunnel.QwdttConfigFromInbound(ib); ok && cfg.RouteThroughXray {
+			// Routed inbounds are already metered inbound>>>tag via the TUN
+			// bridge (injectQwdttEgress); the wdtt0/wdttraw0 scrape carries
+			// the same bytes.
+			routedTags[tag] = true
+		}
 		emailsByTag[tag] = anytlsEmailsForInbound(ib)
 		snaps = append(snaps, tunnel.GetManager().CollectQwdttTraffic(tag))
 	}
-	j.commitSidecarScrape("qwdtt", snaps, emailsByTag)
+	j.commitSidecarScrape("qwdtt", snaps, emailsByTag, routedTags)
 }
 
 func (j *TunnelJob) collectTproxyTraffic() {
@@ -467,6 +524,7 @@ func (j *TunnelJob) collectTproxyTraffic() {
 		return
 	}
 	var snaps []tunnel.SidecarTraffic
+	routedTags := map[string]bool{}
 	emailsByTag := map[string][]string{}
 	for _, ib := range inbounds {
 		if ib == nil || ib.Protocol != model.Tproxy || !ib.Enable || ib.NodeID != nil {
@@ -476,13 +534,19 @@ func (j *TunnelJob) collectTproxyTraffic() {
 		if tag == "" {
 			continue
 		}
+		if cfg, ok := tunnel.TproxyConfigFromInbound(ib); ok && cfg.RouteThroughXray && cfg.RouteXrayPort > 0 {
+			// Routed inbounds are already metered inbound>>>tag via the SOCKS
+			// bridge (injectTproxyEgress); the /proc io scrape carries the
+			// same bytes.
+			routedTags[tag] = true
+		}
 		emailsByTag[tag] = anytlsEmailsForInbound(ib)
 		snaps = append(snaps, tunnel.GetManager().CollectTproxyTraffic(tunnel.TproxyKey(ib.Id), tag))
 	}
-	j.commitSidecarScrape("tproxy", snaps, emailsByTag)
+	j.commitSidecarScrape("tproxy", snaps, emailsByTag, routedTags)
 }
 
-func (j *TunnelJob) commitSidecarScrape(name string, snaps []tunnel.SidecarTraffic, emailsByTag map[string][]string) {
+func (j *TunnelJob) commitSidecarScrape(name string, snaps []tunnel.SidecarTraffic, emailsByTag map[string][]string, routedTags map[string]bool) {
 	if len(snaps) == 0 {
 		return
 	}
@@ -495,7 +559,7 @@ func (j *TunnelJob) commitSidecarScrape(name string, snaps []tunnel.SidecarTraff
 		if live {
 			liveTags = append(liveTags, d.Tag)
 		}
-		if d.Up > 0 || d.Down > 0 {
+		if !routedTags[d.Tag] && (d.Up > 0 || d.Down > 0) {
 			traffics = append(traffics, &xray.Traffic{
 				IsInbound: true,
 				Tag:       d.Tag,
@@ -518,6 +582,7 @@ func (j *TunnelJob) commitSidecarScrape(name string, snaps []tunnel.SidecarTraff
 			})
 		}
 		onlineEmails = append(onlineEmails, email)
+		service.RecordLiveInbound(email, d.Tag, d.Up+d.Down, time.Now().UnixMilli())
 	}
 	if len(traffics) > 0 || len(clientTraffics) > 0 {
 		if _, _, err := j.inboundService.AddTraffic(traffics, clientTraffics); err != nil {
@@ -527,6 +592,82 @@ func (j *TunnelJob) commitSidecarScrape(name string, snaps []tunnel.SidecarTraff
 	if len(onlineEmails) > 0 || len(liveTags) > 0 {
 		j.inboundService.RefreshLocalOnlineClients(onlineEmails, liveTags)
 	}
+}
+
+// anytlsStatsMark is the last per-user counters read from one AnyTLS stats
+// file; the server counts from its own start, the panel adds the difference.
+type anytlsStatsMark struct {
+	started int64
+	users   map[string][2]int64
+}
+
+var (
+	anytlsStatsMu    sync.Mutex
+	anytlsStatsMarks = map[int]anytlsStatsMark{}
+	// anytlsPanelStart: bytes a server counted before this panel process
+	// started were credited by the previous one, so they are skipped.
+	anytlsPanelStart = time.Now().Unix()
+)
+
+// anytlsUserDeltas turns the stats file of inbound id into client traffic
+// since the last read and records each user's live inbound and client IPs.
+// The shared password's user ("") is credited only when the inbound has a
+// single client. Returns the traffic and the users online now.
+func anytlsUserDeltas(id int, tag string, st tunnel.AnytlsStats, emails []string) ([]*xray.ClientTraffic, []string) {
+	anytlsStatsMu.Lock()
+	prev, seen := anytlsStatsMarks[id]
+	if seen && prev.started != st.Started {
+		seen, prev = st.Started > anytlsPanelStart, anytlsStatsMark{}
+	} else if !seen {
+		seen = st.Started > anytlsPanelStart
+	}
+	mark := anytlsStatsMark{started: st.Started, users: map[string][2]int64{}}
+	for name, u := range st.Users {
+		mark.users[name] = [2]int64{u.Up, u.Down}
+	}
+	anytlsStatsMarks[id] = mark
+	anytlsStatsMu.Unlock()
+
+	attached := map[string]bool{}
+	for _, e := range emails {
+		attached[e] = true
+	}
+	sole := tunnel.TrustTunnelSoleClient(emails)
+	now := time.Now()
+	var traffic []*xray.ClientTraffic
+	var online []string
+	for name, u := range st.Users {
+		email := name
+		if email == "" {
+			email = sole
+		}
+		if email == "" || !attached[email] {
+			continue
+		}
+		var up, down int64
+		if seen {
+			p := prev.users[name]
+			up, down = u.Up-p[0], u.Down-p[1]
+			if up < 0 || down < 0 {
+				up, down = u.Up, u.Down
+			}
+		}
+		if up > 0 || down > 0 {
+			traffic = append(traffic, &xray.ClientTraffic{Email: email, Up: up, Down: down})
+		}
+		active := false
+		for ip, e := range u.IPs {
+			if e.Active > 0 {
+				active = true
+				service.RecordLiveIP(email, ip, tag, now.UnixMilli())
+			}
+		}
+		if active || up > 0 || down > 0 {
+			online = append(online, email)
+			service.RecordLiveInbound(email, tag, up+down, now.UnixMilli())
+		}
+	}
+	return traffic, online
 }
 
 func anytlsEmailsForInbound(ib *model.Inbound) []string {
@@ -547,6 +688,33 @@ func anytlsEmailsForInbound(ib *model.Inbound) []string {
 		}
 	}
 	return out
+}
+
+// trustTunnelPerUser credits each /clients row to its client (by the derived
+// credentials username) and records live inbounds and IPs. Rows for unknown
+// usernames (a client removed since the endpoint started) are dropped.
+func trustTunnelPerUser(d tunnel.TrustTunnelTraffic, userToEmail map[string]string) ([]*xray.ClientTraffic, []string) {
+	now := time.Now().UnixMilli()
+	var traffic []*xray.ClientTraffic
+	var online []string
+	for _, u := range d.Users {
+		email := userToEmail[u.User]
+		if email == "" {
+			continue
+		}
+		if u.Up > 0 || u.Down > 0 {
+			traffic = append(traffic, &xray.ClientTraffic{Email: email, Up: u.Up, Down: u.Down})
+		}
+		if u.Sessions > 0 || u.Up > 0 || u.Down > 0 {
+			online = append(online, email)
+			service.RecordLiveInbound(email, d.Tag, u.Up+u.Down, now)
+			if u.Sessions > 0 && u.IP != "" {
+				// Loopback (the gateway, before PROXY support) is ignored here.
+				service.RecordLiveIP(email, u.IP, d.Tag, now)
+			}
+		}
+	}
+	return traffic, online
 }
 
 func trustTunnelEmailsForInbound(ib *model.Inbound) []string {
@@ -663,4 +831,151 @@ func normalizeNaiveOnline(online []string, deltas []tunnel.NaiveClientTraffic, _
 		out = append(out, e)
 	}
 	return out
+}
+
+// collectWgosocksTraffic meters wgosocks inbounds via /proc/<pid>/io deltas
+// (tproxy pattern). Per-client traffic is not separable in the engine: the
+// sole enabled client gets the totals, multi-client inbounds roll up to the
+// inbound only (commitSidecarScrape + TrustTunnelSoleClient).
+func (j *TunnelJob) collectWgosocksTraffic() {
+	inbounds, err := j.inboundService.GetAllInbounds()
+	if err != nil {
+		logger.Warning("tunnel job: get inbounds failed:", err)
+		return
+	}
+	var snaps []tunnel.SidecarTraffic
+	emailsByTag := map[string][]string{}
+	for _, ib := range inbounds {
+		if ib == nil || ib.Protocol != model.Wgosocks || !ib.Enable || ib.NodeID != nil {
+			continue
+		}
+		tag := strings.TrimSpace(ib.Tag)
+		if tag == "" {
+			continue
+		}
+		emailsByTag[tag] = anytlsEmailsForInbound(ib)
+		snaps = append(snaps, tunnel.GetManager().CollectWgosocksTraffic(tunnel.WgosocksKey(ib.Id), tag))
+	}
+	j.commitSidecarScrape("wgosocks", snaps, emailsByTag, nil)
+}
+
+// collectCsqttTraffic meters the singleton csqtt core via /proc/<pid>/io
+// deltas (tproxy/olcRTC pattern). The core carries one shared device
+// password, so per-client attribution follows the sole-client rule; routed
+// inbounds are already metered inbound>>>tag by the policy-route bridge.
+func (j *TunnelJob) collectCsqttTraffic() {
+	inbounds, err := j.inboundService.GetAllInbounds()
+	if err != nil {
+		logger.Warning("tunnel job: get inbounds failed:", err)
+		return
+	}
+	var snaps []tunnel.SidecarTraffic
+	routedTags := map[string]bool{}
+	emailsByTag := map[string][]string{}
+	for _, ib := range inbounds {
+		if ib == nil || ib.Protocol != model.Csqtt || !ib.Enable || ib.NodeID != nil {
+			continue
+		}
+		tag := strings.TrimSpace(ib.Tag)
+		if tag == "" {
+			continue
+		}
+		if cfg, ok := tunnel.CsqttConfigFromInbound(ib); ok && cfg.RouteThroughXray {
+			// Routed inbounds are already metered inbound>>>tag via the
+			// policy-route bridge; the /proc io scrape carries the same bytes.
+			routedTags[tag] = true
+		}
+		emailsByTag[tag] = anytlsEmailsForInbound(ib)
+		snaps = append(snaps, tunnel.GetManager().CollectCsqttTraffic(tag))
+	}
+	j.commitSidecarScrape("csqtt", snaps, emailsByTag, routedTags)
+}
+
+// collectMasterdnsTraffic meters the singleton masterdns core via
+// /proc/<pid>/io deltas (no routed egress — direct core).
+func (j *TunnelJob) collectMasterdnsTraffic() {
+	inbounds, err := j.inboundService.GetAllInbounds()
+	if err != nil {
+		logger.Warning("tunnel job: get inbounds failed:", err)
+		return
+	}
+	var snaps []tunnel.SidecarTraffic
+	emailsByTag := map[string][]string{}
+	for _, ib := range inbounds {
+		if ib == nil || ib.Protocol != model.Masterdns || !ib.Enable || ib.NodeID != nil {
+			continue
+		}
+		tag := strings.TrimSpace(ib.Tag)
+		if tag == "" {
+			continue
+		}
+		emailsByTag[tag] = anytlsEmailsForInbound(ib)
+		snaps = append(snaps, tunnel.GetManager().CollectMasterdnsTraffic(tag))
+	}
+	j.commitSidecarScrape("masterdns", snaps, emailsByTag, nil)
+}
+
+// collectOpenfluxTraffic meters openflux exits via /proc/<pid>/io deltas
+// (no routed egress — direct core).
+func (j *TunnelJob) collectOpenfluxTraffic() {
+	inbounds, err := j.inboundService.GetAllInbounds()
+	if err != nil {
+		logger.Warning("tunnel job: get inbounds failed:", err)
+		return
+	}
+	var snaps []tunnel.SidecarTraffic
+	emailsByTag := map[string][]string{}
+	for _, ib := range inbounds {
+		if ib == nil || ib.Protocol != model.Openflux || !ib.Enable || ib.NodeID != nil {
+			continue
+		}
+		tag := strings.TrimSpace(ib.Tag)
+		if tag == "" {
+			continue
+		}
+		emailsByTag[tag] = anytlsEmailsForInbound(ib)
+		snaps = append(snaps, tunnel.GetManager().CollectOpenfluxTraffic(tunnel.OpenfluxKey(ib.Id), tag))
+	}
+	j.commitSidecarScrape("openflux", snaps, emailsByTag, nil)
+}
+
+// collectAivpnTraffic meters the singleton aivpn core via /proc/<pid>/io
+// deltas. AIVPN clients live in the core DB, so no per-client emails attach:
+// only the inbound tag goes live for the Inbounds gate.
+func (j *TunnelJob) collectAivpnTraffic() {
+	inbounds, err := j.inboundService.GetAllInbounds()
+	if err != nil {
+		logger.Warning("tunnel job: get inbounds failed:", err)
+		return
+	}
+	var snaps []tunnel.SidecarTraffic
+	emailsByTag := map[string][]string{}
+	for _, ib := range inbounds {
+		if ib == nil || ib.Protocol != model.Aivpn || !ib.Enable || ib.NodeID != nil {
+			continue
+		}
+		tag := strings.TrimSpace(ib.Tag)
+		if tag == "" {
+			continue
+		}
+		emailsByTag[tag] = anytlsEmailsForInbound(ib)
+		snaps = append(snaps, tunnel.GetManager().CollectAivpnTraffic(tag))
+	}
+	j.commitSidecarScrape("aivpn", snaps, emailsByTag, nil)
+}
+
+// recordSidecarLive marks each online email as using the sidecar inbounds it
+// is attached to; the per-delta records that follow carry the byte weight.
+func recordSidecarLive(emailsByTag map[string][]string, onlineEmails []string, nowMs int64) {
+	online := make(map[string]bool, len(onlineEmails))
+	for _, e := range onlineEmails {
+		online[strings.TrimSpace(e)] = true
+	}
+	for tag, emails := range emailsByTag {
+		for _, e := range emails {
+			if online[e] {
+				service.RecordLiveInbound(e, tag, 0, nowMs)
+			}
+		}
+	}
 }

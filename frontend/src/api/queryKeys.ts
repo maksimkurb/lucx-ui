@@ -11,6 +11,7 @@ export const keys = {
   hosts: {
     root: () => ['hosts'] as const,
     list: () => ['hosts', 'list'] as const,
+    raw: () => ['hosts', 'raw'] as const,
     byInbound: (inboundId: number) => ['hosts', 'byInbound', inboundId] as const,
     tags: () => ['hosts', 'tags'] as const,
   },
@@ -28,6 +29,7 @@ export const keys = {
     root: () => ['inbounds'] as const,
     slim: () => ['inbounds', 'slim'] as const,
     options: () => ['inbounds', 'options'] as const,
+    amneziawgKernelReadiness: () => ['inbounds', 'amneziawgKernelReadiness'] as const,
   },
   clients: {
     root: () => ['clients'] as const,
@@ -59,12 +61,21 @@ export const keys = {
     olcrtcStatus: () => ['tunnels', 'olcrtcStatus'] as const,
     qwdttStatus: () => ['tunnels', 'qwdttStatus'] as const,
     csqttStatus: () => ['tunnels', 'csqttStatus'] as const,
+    masterdnsStatus: () => ['tunnels', 'masterdnsStatus'] as const,
+    aivpnStatus: () => ['tunnels', 'aivpnStatus'] as const,
+    aivpnClients: (inboundId: number) => ['tunnels', 'aivpnClients', String(inboundId)] as const,
     openfluxStatus: () => ['tunnels', 'openfluxStatus'] as const,
     mieruStatus: () => ['tunnels', 'mieruStatus'] as const,
     trustTunnelStatus: () => ['tunnels', 'trustTunnelStatus'] as const,
     anytlsStatus: () => ['tunnels', 'anytlsStatus'] as const,
+    wgoStatus: () => ['tunnels', 'wgoStatus'] as const, // LUCX-HOOK: wgobfs
     tproxyStatus: () => ['tunnels', 'tproxyStatus'] as const,
     mtproxyStatus: () => ['tunnels', 'mtproxyStatus'] as const,
+    telemtStatus: () => ['tunnels', 'telemtStatus'] as const,
+    mtprotoZigStatus: () => ['tunnels', 'mtprotoZigStatus'] as const,
   },
+  // LUCX-HOOK: scanner guard (ipset banning of RKN scanner subnets) + clean-ip tool
+  scanguard: () => ['scanguard'] as const,
+  cleanIp: () => ['cleanip'] as const,
   // END LUCX-HOOK
 } as const;

@@ -64,8 +64,32 @@ Not to re-add: tun2socks (replaced by TUN inbound), DNS in the server .conf (bre
 
 **Essence:** if geo is in the tarball, `update.sh` unpacks over the top → stock names reset. Symptom (Aleksandr SacredX, lucx.88): custom geosite groups vanished after web update → Xray won’t start. **Decision:** leave unpack-overwrite alone (parity with upstream). Advice: keep custom groups in a **separate filename**. lucx.198: fetch runs **before** first start so a fresh install is not missing geo. lucx.230: install/update **skip** a stock `.dat` that already exists (missing → fetch). Fresh geo: Xray `geodata.assets` cron + panel Geofiles / `x-ui update-geofiles`. Geo is not packed in the GitHub panel tarball; Yandex ships `x-ui-geo.tar.gz`.
 
-**Stock since lucx.99 (8 files):** `geoip/geosite.dat` (Loyalsoldier), `_IR` (chocolate4u), `_RU` (runetfreedom), **`_ROSCOM`** (hydraponique/roscomvpn-{geoip,geosite} — RKN geoblock / category-ru / category-ads / youtube/telegram/steam). ROSCOM is a separate name, doesn’t overwrite others’ customs. Update: panel Version → Geofiles / `x-ui` menu → RoscomVPN / `update-all-geofiles`. In routing: `ext:geosite_ROSCOM.dat:category-geoblock-ru` etc. (presets in `constants.ts`). Geodata browser picks up any `*.dat` in `bin/`.
+**Stock since lucx.99 (10 files, lucx.305):** `geoip/geosite.dat` (Loyalsoldier), `_IR` (chocolate4u), `_RU` (runetfreedom), **`_ROSCOM`** (hydraponique/roscomvpn-{geoip,geosite} — RKN geoblock / category-ru / category-ads / youtube/telegram/steam), **`_GA`** (Ground-Zerro/Geo-Aggregator — RU blocklist aggregate, 19 categories incl. youtube/telegram/steam + `itDog-russia-inside`; category index `db/catalog.json`). ROSCOM/`_GA` are separate names, don't overwrite others' customs. Update: panel Version → Geofiles / `x-ui` menu → RoscomVPN / Geo-Aggregator / `update-all-geofiles`. In routing: `ext:geosite_ROSCOM.dat:category-geoblock-ru`, `ext:geosite_GA.dat:<tag>` etc. (ROSCOM presets in `constants.ts`; `constants.ts` has no GA presets). Geodata browser picks up any `*.dat` in `bin/`.
+
+**GA quirks (no-release upstream, lucx.305):** Geo-Aggregator has no GitHub releases — the `.dat` files are raw main-branch URLs (`raw.githubusercontent.com/.../main/geodat/`). `geofileEntry.URL` marks such sources in `geofileAllowlist`: no tag pinning, no `.sha256sum` (GA publishes none) — direct download, unchanged bytes skip the install/restart via a content-hash compare (raw serves no `Last-Modified`, so 304 never happens). Trust rests on TLS, exactly like Xray's own `geodata.assets` fetches. Seeding (`ApplyGeodata`) only fills panels still on the vanilla Loyalsoldier pair — existing LucX panels get the `_GA` files via the panel's "use standard sources" button or the next cron/manual update.
+
+**lucx.306 — missing geodata asset must not keep the core down ( Игорь's GA restart loop):** the Xray core validates `geodata.assets[].file` presence at config build and exits on the first missing one; a failed stock fetch (GA geoip is 35 MB, raw.githubusercontent may be unreachable) put the panel in a restart loop with every client offline. Root fix: `GetXrayConfig` runs `lucx.SanitizeGeodataAssets` — the config the core receives only carries assets whose file exists in `bin/`; the saved template (operator's GeodataSection) keeps the entry, and the file's appearance (install fetch, panel Geofiles button, `x-ui` menu) brings it back on the next build. install.sh geo fetch `--max-time` raised 180→600 s for the bigger files. Seeding into the template stays as it is — the sanitize is the safety net, not a rollback of the stock list.
 
 **Important for diagnosing “/awg/ doesn’t work”:** sub endpoints (`/sub/`, `/json/`, `/clash/`, `/awg/`) listen on the sub service on a **separate port** (default 2096), not the panel port — reverse proxy must forward them to the sub port.
+
+### 7. systemd sandbox denies `open(/dev/net/tun)` → Xray TUN inbounds die `operation not permitted` (found 2026-10-28, fix pending in units)
+
+**Symptom (ŹȺҚ™, 28.10.2026, after updating to lucx.329):** Xray restart loop, `exit status 255` / `app/proxyman/inbound: failed to start proxy > operation not permitted` every 2 s, ALL inbounds down. Rollback / xray core swap / install.sh re-run / reboot do NOT help (the hardened unit stays).
+
+**Root cause (reproduced on the host without the panel):** xray 26.10.21 TUN inbounds (routed AWG/qWDTT bridges, `injectAwgEgress`/`injectQwdttEgress` — this host: two kernel-AWG inbounds, ports 443+27373, both `routeThroughXray`) open `/dev/net/tun` at inbound start. The shipped hardened units (`x-ui.service.{debian,rhel,arch}`, b42a1c0b 05.10.2026) under **systemd 249 (Ubuntu 22.04)** deny that open with EPERM — the interplay is `RestrictAddressFamilies="AF_INET AF_INET6 AF_UNIX AF_NETLINK"` × `ProtectClock=yes` (each alone is fine; strace shows `openat("/dev/net/tun", O_RDWR) = EPERM`; `SystemCallFilter=@system-service` also coexists fine and `DevicePolicy=closed` alone reproduces it — a restrictive DEVICE policy is the mechanism, ProtectClock tightens it on 249). Hosts with other systemd releases / older cores are unaffected — explains why it hit one box.
+
+**Healing for an already-hit host (no panel change needed; survives install/update):**
+```
+mkdir -p /etc/systemd/system/x-ui.service.d
+printf '[Service]\nDeviceAllow=/dev/net/tun\n' > /etc/systemd/system/x-ui.service.d/20-lucx-device.conf
+systemctl daemon-reload && systemctl restart x-ui
+```
+Verified live: with the drop-in, the FULL unit replica (all hardening + `SystemCallFilter=@system-service`) starts xray and tun1/tun2 come up; sourcecraft/install generators never touch `20-*` files. Applied on this host 18:42 (xray running, tun1/tun2 created).
+
+**Release fix:** `DeviceAllow=/dev/net/tun` is included in the three shipped units. Existing affected hosts need the drop-in above; include it in release notes (RU+EN). The seccomp whitelist remains unchanged.
+
+**Diagnostic check (added after the diagnosis):** the AWG diagnostics modal's xray-tun chain runs a `tun device` line first (`tunSandboxDeviceCheck`, `internal/awg/diagnostics.go`) — it opens `/dev/net/tun` through the prober (`sh -c "exec 3<>/dev/net/tun"`, fd lives only for the shell's lifetime) under the panel's own unit, so it sees the same sandbox as the Xray child and fails with the heal path in the detail when the host is affected.
+
+**Not this:** `bind: address already in use` on the metrics/api/tun listeners when testing the config out of band while the live xray holds them (rename ports/devices in the test copy); tproxy-mode AWG inbounds (dokodemo EPERM on containers) — same message, different inbound; that mode is opt-in and this host does not use it.
 
 ---

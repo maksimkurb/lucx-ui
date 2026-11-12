@@ -224,6 +224,9 @@ func GenerateAWGParams(profile ObfProfile, awgVersion string) (AWGParams, error)
 	if profile == ObfPremium {
 		return generatePremiumParams(awgVersion), nil
 	}
+	if profile == ObfMinecraft {
+		return generateMinecraftParams(awgVersion), nil
+	}
 	r, err := rangesFor(profile)
 	if err != nil {
 		return AWGParams{}, err
@@ -280,6 +283,52 @@ func generatePremiumParams(awgVersion string) AWGParams {
 		p.H1, p.H2, p.H3, p.H4 = "1", "2", "3", "4"
 	default:
 		p.H1, p.H2, p.H3, p.H4 = genHRange(0), genHRange(1), genHRange(2), genHRange(3)
+	}
+	return p
+}
+
+// generateMinecraftParams renders the Minecraft Bedrock (RakNet) obfuscation
+// set, ported from phenomenonrt.github.io/generatorM's balanced profile.
+// Junk sizes sit in the range of real Bedrock game packets (Jmin 48-96,
+// Jmax 300-800). v2 headers are the RakNet IDs the generator now documents:
+// H1 client OCR1 (5), H2 server OCR1 Reply (6, not the client's OCR2 7),
+// H3 unconnected pong (28), H4 in-game 128-141. v3 header protection
+// encrypts the header, so the compat values 1-4 are used.
+// v3 S1-S4 stay equal (balanced band 16-28): the generator requires that
+// when RandomTrailers is on, and the panel leaves that switch for the
+// operator — distinct S would break the tunnel if they turn it on.
+func generateMinecraftParams(awgVersion string) AWGParams {
+	jc := randInt(4, 7)
+	jmin := randInt(48, 96)
+	jmax := randInt(jmin+32, 800)
+	var s1, s2, s3, s4 int
+	if awgVersion == "3" || awgVersion == "3.1" {
+		s1 = randInt(16, 28)
+		s4 = s1
+		s2 = s1
+		s3 = s1
+	} else {
+		s1 = randInt(40, 88)
+		s2 = randInt(40, 88)
+		s3 = randInt(16, 44)
+		s4 = enforceSMin(randInt(8, 24))
+		for i := 0; i < 8 && (s2 == s1+56 || s3 == s2+28 || s3 == s1+84); i++ {
+			if s2 == s1+56 {
+				s2++
+			}
+			if s3 == s2+28 || s3 == s1+84 {
+				s3++
+			}
+		}
+	}
+	p := AWGParams{Jc: jc, Jmin: jmin, Jmax: jmax, S1: s1, S2: s2, S3: s3, S4: s4}
+	switch awgVersion {
+	case "1.5":
+		p.H1, p.H2, p.H3, p.H4 = "5", "6", "28", "128"
+	case "3", "3.1":
+		p.H1, p.H2, p.H3, p.H4 = "1", "2", "3", "4"
+	default:
+		p.H1, p.H2, p.H3, p.H4 = "5", "6", "28", "128-141"
 	}
 	return p
 }
@@ -353,6 +402,21 @@ func awg3Range(lo, hi int) string {
 //	RejectAfterTime must exceed KeepaliveTimeout+RekeyTimeout or the receiving
 //	side's key-refresh window collapses to zero; RekeyAfterTime must finish
 //	before RejectAfterTime; MaxHandshakeAttempts >= 1.
+//
+// generateMinecraftTimings is generatorM's balanced AWG 3.1 block, fixed
+// ranges rather than a fresh draw. RandomTrailers stays off here — the
+// controller does not auto-enable it (current GUI clients drop the handshake).
+func generateMinecraftTimings() Awg3DeviceTimings {
+	return Awg3DeviceTimings{
+		ContentPaddingAddition: "16-128",
+		RekeyAfterTime:         "120-150",
+		RekeyTimeout:           "5-8",
+		RejectAfterTime:        "190-240",
+		KeepaliveTimeout:       "10-20",
+		MaxHandshakeAttempts:   "8-12",
+	}
+}
+
 func generatePremiumTimings() Awg3DeviceTimings {
 	rekeyTimeoutLo := randInt(4, 6)
 	rekeyTimeoutHi := rekeyTimeoutLo + randInt(1, 4)
@@ -374,6 +438,9 @@ func generatePremiumTimings() Awg3DeviceTimings {
 func GenerateAwg3DeviceTimings(profile ObfProfile) Awg3DeviceTimings {
 	if profile == ObfPremium {
 		return generatePremiumTimings()
+	}
+	if profile == ObfMinecraft {
+		return generateMinecraftTimings()
 	}
 	var padLo, padHi, spread int
 	switch profile {

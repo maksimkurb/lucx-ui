@@ -37,6 +37,20 @@ type PreviewRow struct {
 	SNILocked   bool     `json:"sniLocked,omitempty"`
 }
 
+// ownIPListen: listen is a specific IP that the gateway binds itself.
+func ownIPListen(listen string, bindIPs []string) bool {
+	ip := net.ParseIP(strings.TrimSpace(listen))
+	if ip == nil || ip.IsUnspecified() {
+		return false
+	}
+	for _, b := range bindIPs {
+		if ip.Equal(net.ParseIP(strings.TrimSpace(b))) {
+			return true
+		}
+	}
+	return false
+}
+
 func publicListen(listen string) string {
 	s := strings.TrimSpace(listen)
 	if s == "" || s == "0.0.0.0" || s == "::" || s == "0.0.0.0/0" {
@@ -138,7 +152,7 @@ func InboundUsesTCP(ib *model.Inbound) bool {
 	}
 	switch ib.Protocol {
 	case model.WireGuard, model.AmneziaWG, model.AWG, model.Hysteria, model.TUIC,
-		model.Olcrtc, model.Qwdtt, model.Csqtt, model.Protocol("tun"):
+		model.Olcrtc, model.Qwdtt, model.Csqtt, model.Masterdns, model.Protocol("tun"):
 		return false
 	}
 	netw, _ := parseStream(ib.StreamSettings)
@@ -179,6 +193,9 @@ func ClassifyInbound(ib *model.Inbound) Classified {
 		if !ok {
 			return Classified{}
 		}
+		if AnytlsSupportsProxyProtocol() {
+			return Classified{Class: ClassPassthrough, SNI: cfg.SNI}
+		}
 		return Classified{
 			Class: ClassPassthrough, SNI: cfg.SNI, NoProxy: true,
 			Note: "backend can't parse PROXY — client IP hidden",
@@ -188,6 +205,9 @@ func ClassifyInbound(ib *model.Inbound) Classified {
 		if !ok {
 			return Classified{}
 		}
+		if TrustTunnelSupportsProxyProtocol() {
+			return Classified{Class: ClassPassthrough, SNI: cfg.Hostname}
+		}
 		return Classified{
 			Class: ClassPassthrough, SNI: cfg.Hostname, NoProxy: true,
 			Note: "backend can't parse PROXY — client IP hidden",
@@ -195,7 +215,7 @@ func ClassifyInbound(ib *model.Inbound) Classified {
 	case model.Openflux:
 		return Classified{Note: "own TCP port — not an SNI backend"}
 	case model.AWG, model.AmneziaWG, model.WireGuard, model.Hysteria, model.TUIC,
-		model.Olcrtc, model.Qwdtt, model.Csqtt:
+		model.Olcrtc, model.Qwdtt, model.Csqtt, model.Masterdns:
 		return Classified{Note: "UDP — not behind the site"}
 	case model.Gateway, model.Mieru, model.MTProto, model.Tunnel:
 		return Classified{}
@@ -514,7 +534,16 @@ func MoveListen(ib *model.Inbound, listen string, port int) {
 	ib.Port = port
 }
 
+// SNIClash returns the duplicated SNI of selected rows, if any.
 func SNIClash(rows []PreviewRow, selected map[int]bool) string {
+	return SNIClashAllow(rows, selected, "")
+}
+
+// SNIClashAllow is SNIClash with one exempted name (issue #171): the shared
+// own-name of a REALITY+site pair is legal when the REALITY side steals from
+// the site. Everything else still clashes.
+func SNIClashAllow(rows []PreviewRow, selected map[int]bool, allow string) string {
+	allowKey := sniMapKey(allow)
 	seen := map[string]bool{}
 	for _, r := range rows {
 		if selected != nil && !selected[r.InboundID] {
@@ -527,12 +556,64 @@ func SNIClash(rows []PreviewRow, selected map[int]bool) string {
 		if k == "" {
 			continue
 		}
-		if seen[k] {
+		if seen[k] && k != allowKey {
 			return k
 		}
 		seen[k] = true
 	}
 	return ""
+}
+
+// SelfSniRealitySNI returns the shared SNI of a legal self-SNI masking pair
+// (issue #171): exactly one selected SNI-locked (REALITY) row and exactly one
+// selected site-front row carry the same name, and the REALITY side opts into
+// stealing failed handshakes from the site (req.Steal, or its dest already
+// points back at this server). Anything more ambiguous keeps the clash.
+func SelfSniRealitySNI(rows []PreviewRow, selected map[int]bool, steal map[int]bool) string {
+	picked := func(r PreviewRow) bool { return selected == nil || selected[r.InboundID] }
+	siteKey := ""
+	for _, r := range rows {
+		if !picked(r) || r.Class != ClassCaddy {
+			continue
+		}
+		if k := sniMapKey(r.SNI); k != "" {
+			siteKey = k
+			break
+		}
+	}
+	if siteKey == "" {
+		return ""
+	}
+	locked, fronts := 0, 0
+	steals := false
+	for _, r := range rows {
+		if !picked(r) {
+			continue
+		}
+		names := previewRouteNames(r)
+		matches := false
+		for _, n := range names {
+			if sniMapKey(n) == siteKey {
+				matches = true
+				break
+			}
+		}
+		if !matches {
+			continue
+		}
+		if r.SNILocked {
+			locked++
+			if (steal != nil && steal[r.InboundID]) || r.StealDest != "" {
+				steals = true
+			}
+		} else if r.Class == ClassCaddy {
+			fronts++
+		}
+	}
+	if locked != 1 || fronts != 1 || !steals {
+		return ""
+	}
+	return siteKey
 }
 
 func xrayTransportSettingsKey(network string) string {
@@ -809,16 +890,30 @@ func portsInUse(others []*model.Inbound, gatewayPort int) map[int]bool {
 
 // BuildPreview lists inbounds the mask may move behind 443.
 // bindIP set → keep port 443 on loopback (Cover first if it is on 443).
-func BuildPreview(gatewayPort int, publicHost string, others []*model.Inbound, bindIP string) []PreviewRow {
+func BuildPreview(gatewayPort int, publicHost string, others []*model.Inbound, bindIPs ...string) []PreviewRow {
 	if gatewayPort <= 0 {
 		gatewayPort = gatewayDefaultPort
 	}
 	publicHost = strings.ToLower(strings.TrimSpace(publicHost))
-	keep443 := strings.TrimSpace(bindIP) != ""
+	binds := CleanBinds(bindIPs)
+	keep443 := len(binds) > 0
 	used := map[int]bool{}
 	if !keep443 {
 		used[gatewayPort] = true
 	}
+	// LUCX-HOOK: a masked inbound moves to 127.0.0.1:<free port>, so ports
+	// already held on loopback (or on every interface) by inbounds that stay
+	// where they are must not be handed out again — e.g. a VLESS-WS behind a
+	// Cover on 127.0.0.1:1443 would collide with the first passthrough slot.
+	for _, ib := range others {
+		if ib == nil || !ib.Enable || ib.Port <= 0 || ib.Protocol == model.Gateway {
+			continue
+		}
+		if IsLoopbackListen(ib.Listen) || publicListen(ib.Listen) == "0.0.0.0" {
+			used[ib.Port] = true
+		}
+	}
+	// END LUCX-HOOK
 	cover443 := false
 	if keep443 {
 		for _, ib := range others {
@@ -899,6 +994,11 @@ func BuildPreview(gatewayPort int, publicHost string, others []*model.Inbound, b
 		if hostAddr == "" {
 			hostAddr = sni
 		}
+		if class != ClassCaddy && ownIPListen(oldListen, binds) {
+			// The gateway now holds this inbound's own IP:443, so the link
+			// the client already has stays valid — keep its address.
+			hostAddr = oldListen
+		}
 		row := PreviewRow{
 			InboundID:   ib.Id,
 			Remark:      ib.Remark,
@@ -950,7 +1050,7 @@ func BuildPreview(gatewayPort int, publicHost string, others []*model.Inbound, b
 			continue
 		}
 		ib := byID[row.InboundID]
-		if ib == nil || !RealitySelfDest(ib.StreamSettings, publicHost, bindIP) {
+		if ib == nil || !RealitySelfDest(ib.StreamSettings, publicHost, binds...) {
 			continue
 		}
 		row.StealDest = gatewayLoopbackDest(coverPort)
@@ -975,7 +1075,7 @@ func markInside(row *PreviewRow, ib *model.Inbound) {
 // failed handshake — so a self-referencing dest turns each scanner probe into
 // a Caddy→Xray→Caddy relay chain that multiplies sockets with no clients
 // attached (tester lucx.275: 35k open sockets, zero clients).
-func RealitySelfDest(stream, publicHost, bindIP string) bool {
+func RealitySelfDest(stream, publicHost string, bindIPs ...string) bool {
 	dest := RealityDest(stream)
 	if dest == "" {
 		return false
@@ -988,7 +1088,11 @@ func RealitySelfDest(stream, publicHost, bindIP string) bool {
 		return false
 	}
 	host = strings.Trim(host, "[]")
-	for _, self := range []string{"127.0.0.1", "::1", "localhost", publicHost, strings.ToLower(bindIP)} {
+	selves := []string{"127.0.0.1", "::1", "localhost", publicHost}
+	for _, b := range bindIPs {
+		selves = append(selves, strings.ToLower(strings.TrimSpace(b)))
+	}
+	for _, self := range selves {
 		if self != "" && host == self {
 			return true
 		}
@@ -1055,12 +1159,12 @@ func previewRouteNames(r PreviewRow) []string {
 	return nil
 }
 
-func appendPreviewRoutes(out []GatewayRoute, seen map[string]bool, rows []PreviewRow, selected map[int]bool, caddy bool) []GatewayRoute {
+func appendPreviewRoutes(out []GatewayRoute, seen map[string]bool, rows []PreviewRow, selected map[int]bool, pred func(PreviewRow) bool) []GatewayRoute {
 	for _, r := range rows {
 		if selected != nil && !selected[r.InboundID] {
 			continue
 		}
-		if caddy != (r.Class == ClassCaddy) {
+		if !pred(r) {
 			continue
 		}
 		dest := gatewayLoopbackDest(r.NewPort)
@@ -1076,8 +1180,21 @@ func appendPreviewRoutes(out []GatewayRoute, seen map[string]bool, rows []Previe
 	return out
 }
 
+// RoutesFromPreview builds the L4 routes. SNI-locked (REALITY) rows come
+// before the site front so a shared own-name goes to Xray and the site keeps
+// serving through the REALITY fallback dest (issue #171 self-SNI masking).
+// Pass order is a no-op for layouts without that (previously refused) overlap.
 func RoutesFromPreview(rows []PreviewRow, selected map[int]bool) []GatewayRoute {
+	predicates := []func(PreviewRow) bool{
+		func(r PreviewRow) bool { return r.SNILocked && r.Class != ClassCaddy },
+		func(r PreviewRow) bool { return !r.SNILocked && r.Class == ClassCaddy },
+		func(r PreviewRow) bool { return !r.SNILocked && r.Class != ClassCaddy },
+		func(r PreviewRow) bool { return r.SNILocked && r.Class == ClassCaddy },
+	}
 	seen := map[string]bool{}
-	out := appendPreviewRoutes(nil, seen, rows, selected, true)
-	return appendPreviewRoutes(out, seen, rows, selected, false)
+	out := []GatewayRoute{}
+	for _, pred := range predicates {
+		out = appendPreviewRoutes(out, seen, rows, selected, pred)
+	}
+	return out
 }

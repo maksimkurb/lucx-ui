@@ -536,7 +536,7 @@ func defaultAwgClients(existing, clients []model.Client, interfaceClients []any,
 // clients (lucx.127, reporter: tester Malderin "allowedIPs entry already used
 // by another client" on a plain metadata edit).
 func fillAwgClients(existing, clients []model.Client, interfaceClients []any, base string, extraUsed []string, keepDefault model.KeepAliveValue) error {
-	if keepDefault.IsZero() {
+	if keepDefault == "" || keepDefault == "0" || keepDefault == "0-0" {
 		keepDefault = "25"
 	}
 	used := make([]string, 0, len(extraUsed)+len(existing))
@@ -613,8 +613,8 @@ func fillAwgClients(existing, clients []model.Client, interfaceClients []any, ba
 			c.AllowedIPs = normalized
 		}
 		used = append(used, c.AllowedIPs...)
-		if c.KeepAlive.IsZero() {
-			c.KeepAlive = keepDefault
+		if keepAliveOf(c.KeepAlive) == "" {
+			c.KeepAlive = keepAliveOfPtr(keepDefault)
 		}
 
 		if i < len(interfaceClients) {
@@ -827,6 +827,16 @@ func BuildAwgClientConf(inbound *model.Inbound, client *model.Client, endpointHo
 	if inbound.Protocol != model.AWG {
 		return "", common.NewError("awg: inbound is not AWG")
 	}
+	for _, value := range []struct{ field, text string }{
+		{"privateKey", client.PrivateKey},
+		{"preSharedKey", client.PreSharedKey},
+		{"endpoint", endpointHost},
+		{"keepAlive", client.KeepAliveText()},
+	} {
+		if err := amneziawg.ValidateConfigValue(value.field, value.text); err != nil {
+			return "", err
+		}
+	}
 	priv := strings.TrimSpace(client.PrivateKey)
 	if priv == "" {
 		return "", common.NewError("awg: client has no private key")
@@ -838,6 +848,18 @@ func BuildAwgClientConf(inbound *model.Inbound, client *model.Client, endpointHo
 		DNS        string `json:"dns"`
 	}
 	_ = json.Unmarshal([]byte(inbound.Settings), &s)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(inbound.Settings), &fields); err != nil {
+		return "", fmt.Errorf("awg: invalid inbound settings: %w", err)
+	}
+	for _, name := range []string{"publicKey", "dns", "h1", "h2", "h3", "h4", "i1", "i2", "i3", "i4", "i5", "headerProtectionKey", "contentPaddingAddition", "rekeyAfterTime", "rekeyTimeout", "rejectAfterTime", "keepaliveTimeout", "maxHandshakeAttempts"} {
+		var value string
+		if json.Unmarshal(fields[name], &value) == nil {
+			if err := amneziawg.ValidateConfigValue(name, value); err != nil {
+				return "", err
+			}
+		}
+	}
 	serverPub := ""
 	if sk := strings.TrimSpace(s.PrivateKey); sk != "" {
 		if pub, err := wgutil.PublicKeyFromPrivate(sk); err == nil {
@@ -851,6 +873,9 @@ func BuildAwgClientConf(inbound *model.Inbound, client *model.Client, endpointHo
 		return "", common.NewError("awg: cannot derive server public key")
 	}
 	address := AwgClientTunnelAddress(inbound.Settings, client.Email, client.AllowedIPs)
+	if err := amneziawg.ValidateConfigValue("address", address); err != nil {
+		return "", err
+	}
 	if address == "" {
 		address = "10.200.0.2/32"
 	}
@@ -887,7 +912,7 @@ func BuildAwgClientConf(inbound *model.Inbound, client *model.Client, endpointHo
 	}
 	b.WriteString("AllowedIPs = 0.0.0.0/0, ::/0\n")
 	fmt.Fprintf(&b, "Endpoint = %s:%d\n", host, inbound.Port)
-	if ka := awg.CollapseTimerForVersion(client.KeepAlive.String(), awgSettingsVersion(inbound.Settings)); ka != "" {
+	if ka := awg.CollapseTimerForVersion(client.KeepAliveText(), awgSettingsVersion(inbound.Settings)); ka != "" {
 		fmt.Fprintf(&b, "PersistentKeepalive = %s\n", ka)
 	}
 	return b.String(), nil

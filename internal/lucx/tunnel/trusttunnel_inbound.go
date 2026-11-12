@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
+	"github.com/mhsanaei/3x-ui/v3/internal/logger"
 )
 
 // TrustTunnelKey returns the manager key for a TrustTunnel inbound id.
@@ -32,6 +33,7 @@ type trustTunnelInboundSettings struct {
 	CertFile           string `json:"certFile"`
 	KeyFile            string `json:"keyFile"`
 	ClientDNS          string `json:"clientDns"`
+	SiteUpstream       string `json:"siteUpstream"`
 	UpstreamProtocol   string `json:"upstreamProtocol"`
 	RouteThroughXray   bool   `json:"routeThroughXray"`
 	RouteXrayPort      int    `json:"routeXrayPort"`
@@ -39,6 +41,7 @@ type trustTunnelInboundSettings struct {
 	MetricsPort        int    `json:"metricsPort"`
 	ListenPreset       string `json:"listenPreset"`
 	ClientRandomPrefix string `json:"clientRandomPrefix"`
+	AuthFailureStatus  int    `json:"authFailureStatus"`
 	Clients            []struct {
 		Email  string `json:"email"`
 		Enable bool   `json:"enable"`
@@ -63,6 +66,7 @@ func TrustTunnelConfigFromInbound(ib *model.Inbound) (TrustTunnelConfig, bool) {
 		CertFile:           s.CertFile,
 		KeyFile:            s.KeyFile,
 		ClientDNS:          s.ClientDNS,
+		SiteUpstream:       s.SiteUpstream,
 		UpstreamProtocol:   s.UpstreamProtocol,
 		RouteThroughXray:   s.RouteThroughXray,
 		RouteXrayPort:      s.RouteXrayPort,
@@ -70,6 +74,7 @@ func TrustTunnelConfigFromInbound(ib *model.Inbound) (TrustTunnelConfig, bool) {
 		MetricsPort:        s.MetricsPort,
 		ListenPreset:       s.ListenPreset,
 		ClientRandomPrefix: s.ClientRandomPrefix,
+		AuthFailureStatus:  s.AuthFailureStatus,
 	}.Merge()
 	if ib.Port > 0 {
 		host := "0.0.0.0"
@@ -104,11 +109,13 @@ func TrustTunnelInstanceFromInbound(ib *model.Inbound, secret []byte, panelCert,
 		return Instance{Core: TrustTunnel, Key: key, Enabled: false}, true
 	}
 	if err := cfg.Validate(); err != nil {
+		logger.Warning("tunnel: ", key, " disabled: ", err)
 		return Instance{Core: TrustTunnel, Key: key, Enabled: false}, true
 	}
 
 	certFile, keyFile := cfg.ResolveCertPaths(panelCert, panelKey)
 	if err := ValidateCertFiles(certFile, keyFile, cfg.Hostname); err != nil {
+		logger.Warning("tunnel: ", key, " disabled: ", err)
 		return Instance{Core: TrustTunnel, Key: key, Enabled: false}, true
 	}
 

@@ -2,11 +2,13 @@ package service
 
 import (
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/op/go-logging"
 
@@ -32,6 +34,20 @@ func setupConflictDB(t *testing.T) {
 	dbDir := t.TempDir()
 	t.Setenv("XUI_DB_FOLDER", dbDir)
 	dbtest.InitDB(t, filepath.Join(dbDir, "x-ui.db"))
+	// Runs before t.TempDir removal (LIFO): straggler goroutines from earlier
+	// tests can recreate a WAL/journal file while RemoveAll is already
+	// deleting, which fails the TempDir cleanup as "directory not empty" and
+	// fails the test. Close the pool again and clear the dir with a bounded
+	// retry so the framework's removal sees it empty.
+	t.Cleanup(func() {
+		_ = database.CloseDB()
+		for i := 0; i < 20; i++ {
+			if err := os.RemoveAll(dbDir); err == nil {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	})
 }
 
 func seedInboundConflict(t *testing.T, tag, listen string, port int, protocol model.Protocol, streamSettings, settings string) {
@@ -833,6 +849,41 @@ func TestCheckPortConflict_AmneziawgnetSocksRelayBlockedLocal(t *testing.T) {
 	}
 	if msg := got.String(); !strings.Contains(msg, "awg-1") {
 		t.Fatalf("conflict message should name the owning AmneziaWG inbound; got %q", msg)
+	}
+}
+
+func TestCheckPortConflict_KernelAmneziaWGDoesNotReserveEmbeddedRelay(t *testing.T) {
+	setupConflictDB(t)
+	seedInboundConflict(t, "awg-kernel", "0.0.0.0", 51820, model.AmneziaWG, ``,
+		`{"server":{"privateKey":"priv","publicKey":"pub","subnetIp":"10.8.1.0","subnetCidr":24,"kernelMode":true},"clients":[]}`)
+
+	var awgInbound model.Inbound
+	if err := database.GetDB().Where("tag = ?", "awg-kernel").First(&awgInbound).Error; err != nil {
+		t.Fatalf("read seeded row: %v", err)
+	}
+	candidate := &model.Inbound{
+		Tag:      "vless-kernel-relay-port",
+		Listen:   "0.0.0.0",
+		Port:     amneziawgnet.SOCKSPortForInbound(awgInbound.Id),
+		Protocol: model.VLESS,
+	}
+	if got, err := (&InboundService{}).checkPortConflict(candidate, 0); err != nil || got != nil {
+		t.Fatalf("kernel-mode AmneziaWG must not reserve an embedded relay port, including with no peers; got=%v err=%v", got, err)
+	}
+}
+
+func TestCheckPortConflict_KernelAmneziaWGAllowsItsUDPPortToMatchRelayRange(t *testing.T) {
+	setupConflictDB(t)
+	seedInboundConflict(t, "awg-kernel", "0.0.0.0", 51820, model.AmneziaWG, ``,
+		`{"server":{"privateKey":"priv","publicKey":"pub","subnetIp":"10.8.1.0","subnetCidr":24,"kernelMode":true},"clients":[]}`)
+
+	var awgInbound model.Inbound
+	if err := database.GetDB().Where("tag = ?", "awg-kernel").First(&awgInbound).Error; err != nil {
+		t.Fatalf("read seeded row: %v", err)
+	}
+	awgInbound.Port = amneziawgnet.SOCKSPortForInbound(awgInbound.Id)
+	if got, err := (&InboundService{}).checkPortConflict(&awgInbound, awgInbound.Id); err != nil || got != nil {
+		t.Fatalf("kernel-mode AmneziaWG UDP port may use a port in the embedded TCP relay range; got=%v err=%v", got, err)
 	}
 }
 

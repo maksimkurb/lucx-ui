@@ -14,12 +14,18 @@ import {
   resolveShareHost,
 } from '@/lib/xray/inbound-link';
 import type { AwgVersion } from '@/lib/xray/inbound-link';
+import { joinConfLines } from '@/lib/xray/conf-lines';
 import type { ClientRecord, InboundOption } from '@/hooks/useClients';
+import { WgoObfuscationSchema } from '@/schemas/protocols/inbound/wgo'; // LUCX-HOOK: wgobfs
+import { instanceSection, obfuscatedEndpoint, wgosocksPhobosLink } from '@/lib/wgo/link'; // LUCX-HOOK: wgobfs
 
 function persistentKeepaliveLine(keepAlive: unknown): string | null {
+  // LUCX-HOOK: an AWG3 range never belongs in a plain WireGuard profile.
+  if (typeof keepAlive === 'string' && keepAlive.includes('-')) return null;
   const s = normalizeAwgTimer(keepAlive);
   if (s === '0') return null;
-  return `PersistentKeepalive = ${s}`;
+  if (typeof keepAlive === 'string' && /^[0-9]+$/.test(s)) return `PersistentKeepalive = ${s}`;
+  return null;
 }
 
 export function isWireguardClient(client: ClientRecord | null | undefined): boolean {
@@ -29,7 +35,9 @@ export function isWireguardClient(client: ClientRecord | null | undefined): bool
     client.publicKey ||
     client.allowedIPs ||
     client.preSharedKey ||
-    client.keepAlive
+    // LUCX-HOOK: a numeric keepalive is WireGuard-family evidence; an AWG3
+    // range string is not (it belongs to the AmneziaWG profile only).
+    (typeof client.keepAlive === 'string' ? !client.keepAlive.includes('-') : !!client.keepAlive)
   );
 }
 
@@ -57,6 +65,7 @@ export function buildWireguardClientConfig(
   addressOverride = '',
   hostEndpoint?: HostEndpoint,
 ): string {
+  if (!client.privateKey && !/^[A-Za-z0-9+/]{43}=$/.test(client.password || '')) return '';
   const endpointHost =
     hostEndpoint?.dest ||
     resolveShareHost(inbound ?? {}, inbound?.nodeAddress ?? '', preferPublicHost(host, publicHost));
@@ -80,7 +89,8 @@ export function buildWireguardClientConfig(
   lines.push('AllowedIPs = 0.0.0.0/0, ::/0', `Endpoint = ${endpoint}`);
   const ka = persistentKeepaliveLine(client.keepAlive);
   if (ka) lines.push(ka);
-  return lines.join('\n');
+  // joinConfLines refuses values that carry line breaks (injection guard).
+  return joinConfLines(lines);
 }
 
 // LUCX-HOOK: AWG — client .conf builder for AmneziaWG, mirroring buildWireguardClientConfig
@@ -201,5 +211,88 @@ export function buildAwgClientConfig(
   const ka = collapseKeepaliveForVersion(client.keepAlive, awgVersionAtLeast(target, '3'));
   if (ka) lines.push(`PersistentKeepalive = ${ka}`);
   return lines.join('\n');
+}
+// END LUCX-HOOK
+
+// LUCX-HOOK: wgobfs — obfuscated WG exports and wgosocks client links.
+// Preset binding lives in the export UI (default preset unless picked); the
+// phobos:// payload carries everything the client helper needs.
+
+export function wireguardObfuscation(
+  inbound: InboundOption | undefined,
+): import('@/schemas/protocols/inbound/wgo').WgoObfuscation | null {
+  const raw = (inbound as { wgObfuscation?: string } | undefined)?.wgObfuscation;
+  if (!raw) return null;
+  try {
+    const parsed = WgoObfuscationSchema.safeParse(JSON.parse(raw));
+    return parsed.success && parsed.data.enabled && parsed.data.presets.length > 0
+      ? parsed.data
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function buildObfuscatedWireguardConfig(
+  client: ClientRecord,
+  inbound: InboundOption | undefined,
+  preset: import('@/schemas/protocols/inbound/wgo').WgoPreset,
+  host = window.location.hostname,
+  publicHost = '',
+  addressOverride = '',
+): string {
+  const base = buildWireguardClientConfig(client, inbound, host, publicHost, addressOverride);
+  if (!base) return '';
+  const endpointHost = resolveShareHost(
+    inbound ?? {},
+    inbound?.nodeAddress ?? '',
+    preferPublicHost(host, publicHost),
+  );
+  const conf = base.replace(/Endpoint = .*/, `Endpoint = ${obfuscatedEndpoint(preset)}`);
+  return `${conf}\n${instanceSection(preset, endpointHost)}`;
+}
+
+export interface WgosocksInboundConfig {
+  key: string;
+  masking: string;
+  mediaSsrc?: string;
+  clients: { email: string; login: string; password: string; enable?: boolean }[];
+}
+
+export function parseWgosocksInboundConfig(
+  inbound: InboundOption | undefined,
+): WgosocksInboundConfig | null {
+  const raw = (inbound as { wgosocksConfig?: string } | undefined)?.wgosocksConfig;
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as WgosocksInboundConfig;
+    return parsed && parsed.key && parsed.masking ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function buildWgosocksClientLink(
+  clientEmail: string,
+  inbound: InboundOption | undefined,
+  host = window.location.hostname,
+  publicHost = '',
+): string {
+  const cfg = parseWgosocksInboundConfig(inbound);
+  if (!cfg || !inbound?.port) return '';
+  const cred = (cfg.clients || []).find(
+    (c) => c.email === clientEmail && c.enable !== false && c.login && c.password,
+  );
+  if (!cred) return '';
+  const endpointHost = resolveShareHost(
+    inbound ?? {},
+    inbound?.nodeAddress ?? '',
+    preferPublicHost(host, publicHost),
+  );
+  return wgosocksPhobosLink(clientEmail, endpointHost, inbound.port, cred.login, cred.password, {
+    key: cfg.key,
+    masking: cfg.masking,
+    mediaSsrc: cfg.mediaSsrc,
+  });
 }
 // END LUCX-HOOK

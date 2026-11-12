@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
+	kernelwg "github.com/mhsanaei/3x-ui/v3/internal/lucx/wireguard" // LUCX-HOOK: validate kernel peers before commit
 
 	"gorm.io/gorm"
 )
@@ -12,6 +13,7 @@ import (
 // commitInboundClientSettings writes a client op's edit (base → ib.Settings) onto
 // the settings committed now: a traffic tick after the op's read must survive.
 func commitInboundClientSettings(tx *gorm.DB, ib *model.Inbound, base string) error {
+	defer InvalidateSubData()
 	var current []string
 	if err := tx.Model(&model.Inbound{}).Where("id = ?", ib.Id).Pluck("settings", &current).Error; err != nil {
 		return err
@@ -23,6 +25,15 @@ func commitInboundClientSettings(tx *gorm.DB, ib *model.Inbound, base string) er
 		}
 		ib.Settings = merged
 	}
+	// LUCX-HOOK: unsupported peers must not invalidate a running kernel inbound.
+	if kernelwg.IsKernel(ib) {
+		structural := *ib
+		structural.ClientStats = nil
+		if _, err := kernelwg.Parse(&structural); err != nil {
+			return err
+		}
+	}
+	// END LUCX-HOOK
 	return tx.Model(&model.Inbound{}).Where("id = ?", ib.Id).Update("settings", ib.Settings).Error
 }
 

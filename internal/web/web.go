@@ -12,21 +12,28 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/amneziawgkern"
 	"github.com/mhsanaei/3x-ui/v3/internal/amneziawgnet"
 	"github.com/mhsanaei/3x-ui/v3/internal/awg" // LUCX-HOOK: AWG sidecar
 	"github.com/mhsanaei/3x-ui/v3/internal/config"
 	"github.com/mhsanaei/3x-ui/v3/internal/eventbus"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
-	"github.com/mhsanaei/3x-ui/v3/internal/lucx/tunnel" // LUCX-HOOK: tunnel sidecars (NaiveProxy)
+	"github.com/mhsanaei/3x-ui/v3/internal/lucx/plugin"             // LUCX-HOOK: sidecar plugins
+	"github.com/mhsanaei/3x-ui/v3/internal/lucx/tunnel"             // LUCX-HOOK: tunnel sidecars (NaiveProxy)
+	kernelwg "github.com/mhsanaei/3x-ui/v3/internal/lucx/wireguard" // LUCX-HOOK: standard kernel WireGuard
 	"github.com/mhsanaei/3x-ui/v3/internal/mtproto"
+	"github.com/mhsanaei/3x-ui/v3/internal/sub" // LUCX-HOOK: stage 3d subscription seam
 	"github.com/mhsanaei/3x-ui/v3/internal/tuic"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/cronspec"
+	"github.com/mhsanaei/3x-ui/v3/internal/util/crypto"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/sys"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/controller"
 	"github.com/mhsanaei/3x-ui/v3/internal/web/job"
@@ -140,8 +147,12 @@ type Server struct {
 	cancel context.CancelFunc
 }
 
-// NewServer creates a new web server instance with a cancellable context.
-func NewServer() *Server {
+// NewServer installs the share-link provider before anything serves, so an early link request
+// no longer gets "sub link provider not registered".
+func NewServer(subLinkProvider service.SubLinkProvider) *Server {
+	if subLinkProvider != nil {
+		service.RegisterSubLinkProvider(subLinkProvider)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{
 		ctx:    ctx,
@@ -184,7 +195,7 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	const maxRequestBodyBytes = 10 << 20 // 10 MiB
 	// LUCX-HOOK: the tunnel core binary upload (~50 MB caddy build) is exempt
 	// from the global body limit, like the DB import.
-	engine.Use(middleware.MaxBodyBytes(maxRequestBodyBytes, "/panel/api/server/importDB", "/panel/api/tunnel/naive/upload", "/panel/api/tunnel/olcrtc/upload", "/panel/api/tunnel/qwdtt/upload", "/panel/api/tunnel/csqtt/upload", "/panel/api/tunnel/openflux/upload", "/panel/api/tunnel/mieru/upload", "/panel/api/tunnel/trusttunnel/upload", "/panel/api/tunnel/anytls/upload", "/panel/api/tunnel/tproxy/upload", "/panel/api/tunnel/mtproxy/upload", "/panel/api/tunnel/tproxy/uploadSite", "/panel/api/sidecar-outbounds/upload/naive", "/panel/api/sidecar-outbounds/upload/mieru", "/panel/api/sidecar-outbounds/upload/trusttunnel"))
+	engine.Use(middleware.MaxBodyBytes(maxRequestBodyBytes, "/panel/api/server/importDB", "/panel/api/tunnel/naive/upload", "/panel/api/tunnel/olcrtc/upload", "/panel/api/tunnel/qwdtt/upload", "/panel/api/tunnel/csqtt/upload", "/panel/api/tunnel/masterdns/upload", "/panel/api/tunnel/openflux/upload", "/panel/api/tunnel/mieru/upload", "/panel/api/tunnel/trusttunnel/upload", "/panel/api/tunnel/anytls/upload", "/panel/api/tunnel/tproxy/upload", "/panel/api/tunnel/mtproxy/upload", "/panel/api/tunnel/tproxy/uploadSite", "/panel/api/sidecar-outbounds/upload/naive", "/panel/api/sidecar-outbounds/upload/mieru", "/panel/api/sidecar-outbounds/upload/trusttunnel"))
 	// END LUCX-HOOK
 
 	webDomain, err := s.settingService.GetWebDomain()
@@ -283,10 +294,21 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 
 	// Let unknown panel document routes fall back to the SPA shell, while every
 	// non-SPA miss still returns a hard 404.
+	// LUCX-HOOK: optional decoy site (lucx.342): every non-SPA miss outside the
+	// base path is proxied to the configured plain-HTTP site instead of a 404.
+	decoy := decoyProxy(s.settingService)
+	// END LUCX-HOOK
 	engine.NoRoute(func(c *gin.Context) {
 		if s.panel.HandleNoRoutePanelSPA(c) {
 			return
 		}
+		// LUCX-HOOK: serve the decoy site (lucx.342)
+		if decoy != nil && !strings.HasPrefix(c.Request.URL.Path, basePath) {
+			decoy.ServeHTTP(c.Writer, c.Request)
+			c.Abort()
+			return
+		}
+		// END LUCX-HOOK
 		c.AbortWithStatus(http.StatusNotFound)
 	})
 
@@ -306,12 +328,14 @@ const (
 	cadenceMtproto       = "@every 10s"
 	cadenceAwg           = "@every 10s" // LUCX-HOOK: AWG sidecar reconcile + traffic
 	cadenceTunnel        = "@every 10s" // LUCX-HOOK: tunnel sidecars reconcile + Naive traffic/online
+	cadenceScanguard     = "@every 30m" // LUCX-HOOK: scanner guard list refresh + INPUT rule re-ensure
 	cadenceAmneziaWG     = "@every 10s"
 	cadenceTuic          = "@every 10s"
 	cadenceClientIPScan  = "@every 10s"
 	cadenceNodeHeartbeat = "@every 5s"
 	cadenceNodeTraffic   = "@every 5s"
 	cadenceOutboundSub   = "@every 5m"
+	cadenceCsqttMembers  = "@every 30s"
 	cadenceReapOrphans   = "@every 5m"
 	cadenceRemoteRouting = "@every 5m"
 	cadenceXrayLogPrune  = "@every 10m"
@@ -352,11 +376,20 @@ func (s *Server) startTask(restartXray bool, loc *time.Location) {
 	awgJob := job.NewAwgJob()
 	_, _ = s.cron.AddJob(cadenceAwg, awgJob)
 	go awgJob.Run()
+	kernelWGJob := job.NewKernelWireguardJob()
+	_, _ = s.cron.AddJob(cadenceAwg, kernelWGJob)
+	go kernelWGJob.Run()
 	// END LUCX-HOOK
 	// LUCX-HOOK: Reconcile tunnel sidecars (NaiveProxy caddy) and revive crashes
 	tunnelJob := job.NewTunnelJob()
 	_, _ = s.cron.AddJob(cadenceTunnel, tunnelJob)
 	go tunnelJob.Run()
+	// END LUCX-HOOK
+	// LUCX-HOOK: Scanner guard — re-ensure ipset INPUT rules (they die with
+	// iptables flush / reboot) and refresh the blocklists on cadence.
+	scanguardJob := job.NewScanguardJob()
+	_, _ = s.cron.AddJob(cadenceScanguard, scanguardJob)
+	go scanguardJob.Run()
 	// END LUCX-HOOK
 
 	// Reconcile embedded AmneziaWG interfaces; traffic rides Xray's own stats
@@ -377,6 +410,7 @@ func (s *Server) startTask(restartXray bool, loc *time.Location) {
 
 	// Outbound subscription auto-refresh (respects per-sub updateInterval)
 	_, _ = s.cron.AddJob(cadenceOutboundSub, job.NewOutboundSubscriptionJob())
+	_, _ = s.cron.AddJob(cadenceCsqttMembers, job.NewCsqttMembersJob())
 
 	_, _ = s.cron.AddJob(cadenceReapOrphans, job.NewReapSyncOrphansJob())
 
@@ -570,11 +604,13 @@ func (s *Server) start(restartXray bool, startTgBot bool) (err error) {
 	// add/update/delete to either the local xray or a remote node panel.
 	// The closures bridge into XrayService (which owns the running xray
 	// process state) without forcing the runtime package to import service.
-	runtime.SetManager(runtime.NewManager(runtime.LocalDeps{
-		APIPort:        func() int { return s.xrayService.GetXrayAPIPort() },
-		SetNeedRestart: func() { s.xrayService.SetToNeedRestart() },
-	}))
-	runtime.GetManager().SetNodeEgressResolver(&s.settingService)
+	mgr := runtime.NewManager(runtime.LocalDeps{
+		APIPort:          func() int { return s.xrayService.GetXrayAPIPort() },
+		SetNeedRestart:   func() { s.xrayService.SetToNeedRestart() },
+		RequestReconcile: func() { s.xrayService.SetToNeedReconcile() },
+	})
+	runtime.SetManager(mgr)
+	mgr.SetNodeEgressResolver(&s.settingService)
 	// Supply the master client certificate for nodes in mtls mode. Issued lazily
 	// from the node CA on first use; runtime stays free of a service import.
 	runtime.SetMasterClientCertProvider(func() (tls.Certificate, error) {
@@ -625,6 +661,11 @@ func (s *Server) start(restartXray bool, startTgBot bool) (err error) {
 			c := &tls.Config{
 				Certificates: []tls.Certificate{cert},
 			}
+			// LUCX-HOOK: a visit by bare IP must not reveal the panel domain.
+			if err := crypto.HideCertWithoutSNI(c); err != nil {
+				logger.Warning("web: generic no-SNI certificate:", err)
+			}
+			// END LUCX-HOOK
 			// Opt-in node mTLS: when a trust CA is configured, request and verify
 			// client certs (VerifyClientCertIfGiven keeps browsers working). With
 			// no CA the listener is unchanged.
@@ -666,6 +707,34 @@ func (s *Server) start(restartXray bool, startTgBot bool) (err error) {
 	service.SetEventBus(s.bus)
 	job.EventBus = s.bus
 	tgbot.EventBus = s.bus
+
+	// LUCX-HOOK: plugins declare `events` in apiVersion 1 and receive bus
+	// events over their unix socket (stage 3b).
+	plugin.SetEventBus(s.bus)
+	// LUCX-HOOK: stage 3c panel API seam — arm the token matcher, hand the
+	// plugins the loopback panel URL and the configured bot credentials.
+	plugin.LoadPanelTokens()
+	botCreds := map[string]string{}
+	if tgToken, err := s.settingService.GetTgBotToken(); err == nil && tgToken != "" {
+		botCreds["telegram"] = tgToken
+	}
+	if dcToken, err := s.settingService.GetDiscordBotToken(); err == nil && dcToken != "" {
+		botCreds["discord"] = dcToken
+	}
+	plugin.SetBotTokens(botCreds)
+	if bp, err := s.settingService.GetBasePath(); err == nil {
+		scheme := "http"
+		if certFile != "" && keyFile != "" {
+			/* The panel listener is TLS with the operator's cert (usually
+			self-signed); plugins dial the loopback back to the panel with
+			verification off for that one connection. */
+			scheme = "https"
+		}
+		plugin.SetPanelURL(fmt.Sprintf("%s://127.0.0.1:%d%s", scheme, port, bp))
+	}
+	// LUCX-HOOK: stage 3d subscription seam — plugins granted "sub":
+	// ["after"] append links after the client entries of the raw /sub body.
+	sub.SubAfterHook = plugin.SubAfterInject
 
 	// Wire xray crash callback BEFORE startTask so it's ready
 	xray.OnCrash = func(err error) {
@@ -731,6 +800,19 @@ func (s *Server) start(restartXray bool, startTgBot bool) (err error) {
 		}
 		s.tgbotService.SendMsgToTgbotAdmins("✅ Test message from 3x-ui")
 		return nil
+	})
+
+	controller.SetTgBotCapsFunc(func() (controller.TgBotCapabilities, error) {
+		caps, err := s.tgbotService.Capabilities()
+		if err != nil {
+			return controller.TgBotCapabilities{}, err
+		}
+		return controller.TgBotCapabilities{
+			InlineEnabled: caps.InlineEnabled,
+			GroupPrivacy:  caps.GroupPrivacy,
+			Username:      caps.Username,
+			Running:       caps.Running,
+		}, nil
 	})
 
 	controller.SetReloadTgbotFunc(func() {
@@ -804,14 +886,17 @@ func (s *Server) stop(stopXray bool, stopTgBot bool) error {
 		}
 		mtproto.GetManager().StopAll()
 		amneziawgnet.GetManager().StopAll()
+		job.NewAmneziaWGJob().FlushKernelTraffic()
+		amneziawgkern.GetManager().StopAll()
 		amneziawgnet.GetOutboundManager().StopAll()
 		// LUCX-HOOK: inbound awgN Start refuses a device that already exists.
 		awg.GetManager().StopAll()
+		kernelwg.GetManager().StopAll()
 		tunnel.GetManager().StopAll()
 		// END LUCX-HOOK
 	}
 	if stopXray {
-		if err := s.xrayService.StopXray(); err != nil {
+		if err := s.xrayService.StopXray(); err != nil && !errors.Is(err, service.ErrXrayNotRunning) {
 			err2 = common.Combine(err2, err)
 		}
 	}
@@ -835,7 +920,10 @@ func (s *Server) stop(stopXray bool, stopTgBot bool) error {
 		s.wsHub.Stop()
 	}
 	if s.listener != nil {
-		err1 = common.Combine(err1, s.listener.Close())
+		// httpServer.Shutdown already closes the listener; ignore closed errors.
+		if err := s.listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			err1 = common.Combine(err1, err)
+		}
 	}
 	return common.Combine(err1, err2)
 }
@@ -877,4 +965,19 @@ func scheduleSettingJob(c *cron.Cron, name, spec, fallback string, j cron.Job) c
 	}
 	logger.Infof("%s scheduled, run at %s", name, spec)
 	return c.Schedule(schedule, j)
+}
+
+// decoyProxy returns a reverse proxy to the configured decoy page, or nil.
+// LUCX-HOOK: panel decoy upstream (lucx.342)
+func decoyProxy(settings service.SettingService) *httputil.ReverseProxy {
+	upstream, err := settings.GetWebSiteUpstream()
+	upstream = strings.TrimSpace(upstream)
+	if err != nil || upstream == "" {
+		return nil
+	}
+	if _, _, err := net.SplitHostPort(upstream); err != nil {
+		logger.Warning("web: webSiteUpstream must be host:port:", upstream)
+		return nil
+	}
+	return httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: upstream})
 }

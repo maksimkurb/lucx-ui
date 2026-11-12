@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -43,7 +44,7 @@ func startContractNode(t *testing.T) *nodeUnderContract {
 	t.Cleanup(func() { runtime.SetManager(prevMgr) })
 
 	previous := global.GetWebServer()
-	s := NewServer()
+	s := NewServer(nil)
 	s.cron = cron.New(cron.WithLocation(time.Local), cron.WithSeconds())
 	global.SetWebServer(s)
 	t.Cleanup(func() {
@@ -322,6 +323,33 @@ func TestMasterNodeContract(t *testing.T) {
 						t.Fatalf("node clients = %v, want c2 gone", got)
 					}
 				}},
+				// LUCX-HOOK: host check contract (admin and node-sync, ok and refusal)
+				{"host check ok and refusal", []string{"HostCheck"}, func() error {
+					okIB := &model.Inbound{
+						Protocol: model.Tproxy, Port: 8443,
+						Settings: `{"hostname":"n.example.com","port":8443,"secret":"00112233445566778899aabbccddeeff","siteSource":"upstream","siteUpstream":"http://127.0.0.1:9","carrierMode":"https"}`,
+					}
+					st, err := master.HostCheck(ctx, okIB)
+					if err != nil {
+						return err
+					}
+					if st.Refused {
+						return errors.New("ok host check was refused")
+					}
+					bad := &model.Inbound{
+						Protocol: model.Tproxy, Port: 8443,
+						Settings: `{"hostname":"n.example.com","port":8443,"secret":"00112233445566778899aabbccddeeff","siteSource":"dir","siteDir":"/var/lucx/../../etc","carrierMode":"https"}`,
+					}
+					st, err = master.HostCheck(ctx, bad)
+					if err != nil {
+						return err
+					}
+					if !st.Refused || st.Msg == "" {
+						return errors.New("host check did not refuse an unsafe site path")
+					}
+					return nil
+				}, nil},
+				// END LUCX-HOOK
 				{"DelInbound removes the inbound", []string{"DelInbound"}, func() error {
 					return master.DelInbound(ctx, masterInbound("updated", false))
 				}, func(t *testing.T) {

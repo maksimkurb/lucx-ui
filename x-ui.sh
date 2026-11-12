@@ -37,12 +37,13 @@ lucx_script_base() {
 # codeload download), used on yandex hosts. $1 = script name.
 lucx_run_from_dist() {
     local script="$1"
+    shift
     local tmp
     tmp=$(mktemp -d)
     if curl -fLR --retry 3 --retry-delay 3 --connect-timeout 15 --max-time 600 \
         "https://codeload.sourcecraft.tech/alexeylcp/lucx-ui/tarball/refs/heads/dist" \
         | tar -xz --strip-components=1 -C "$tmp" && [[ -s "${tmp}/${script}" ]]; then
-        bash "${tmp}/${script}"
+        bash "${tmp}/${script}" "$@"
         local rc=$?
         rm -rf "$tmp"
         return $rc
@@ -139,7 +140,7 @@ iplimit_log_path="${log_folder}/3xipl.log"
 iplimit_banned_log_path="${log_folder}/3xipl-banned.log"
 
 confirm() {
-    if [[ $# > 1 ]]; then
+    if [[ $# -gt 1 ]]; then
         echo && read -rp "$1 [Default $2]: " temp
         if [[ "${temp}" == "" ]]; then
             temp=$2
@@ -285,11 +286,15 @@ legacy_version() {
         echo "Panel version cannot be empty. Exiting."
         exit 1
     fi
-    # Use the entered panel version in the download link
-    install_command="bash <(curl -Ls "https://raw.githubusercontent.com/mhsanaei/3x-ui/v$tag_version/install.sh") v$tag_version"
-
+    # LUCX-HOOK: Install a LucX release rather than an upstream 3x-ui release.
+    tag_version="${tag_version#v}"
     echo "Downloading and installing panel version $tag_version..."
-    eval $install_command
+    if [[ "$(lucx_install_source)" == "yandex" ]]; then
+        lucx_run_from_dist install.sh --yandex "v$tag_version"
+    else
+        bash <(curl -fLs "$(lucx_script_base)/install.sh") "v$tag_version"
+    fi
+    # END LUCX-HOOK
 }
 
 # Function to handle the deletion of the script file
@@ -1291,11 +1296,68 @@ update_all_geofiles() {
     update_geofiles "main" || failed=1
     update_geofiles "IR" || failed=1
     update_geofiles "RU" || failed=1
-    # LUCX-HOOK: RoscomVPN custom geo
+    # LUCX-HOOK: RoscomVPN + Geo-Aggregator custom geo
     update_geofiles "ROSCOM" || failed=1
+    update_geofiles "GA" || failed=1
+    # END LUCX-HOOK
+    # LUCX-HOOK: IP databases for the Devices column (no Xray restart needed)
+    update_ipdb || failed=1
     # END LUCX-HOOK
     return $failed
 }
+
+# LUCX-HOOK: DB-IP Lite IP databases (provider / country / city of client IPs
+# in the panel's Devices column). The panel also refreshes them by itself once
+# a month; this updates them now, together with the geo files. Free files,
+# CC BY 4.0, plain HTTPS download — no account, key or client data. They go to
+# the panel's database folder, which install/update keep and Docker persists.
+# The panel reloads replaced files on its own, so no restart is needed.
+xui_db_folder() {
+    local folder="${XUI_DB_FOLDER:-}" envfile
+    envfile="$(xui_env_file_path)"
+    if [[ -z "$folder" && -r "$envfile" ]]; then
+        folder=$(sed -n 's/^[[:space:]]*XUI_DB_FOLDER=//p' "$envfile" | tail -n 1 | tr -d "\"'")
+    fi
+    echo "${folder:-/etc/x-ui}"
+}
+
+update_ipdb() {
+    local dir name dest tmp month this_month last_month got failed=0
+    dir="$(xui_db_folder)"
+    mkdir -p "$dir" || return 1
+    this_month=$(date -u +%Y-%m)
+    last_month=$(date -u -d "$(date -u +%Y-%m-01) -1 month" +%Y-%m 2> /dev/null)
+    for name in dbip-asn-lite dbip-city-lite; do
+        dest="${dir}/${name}.mmdb"
+        if [[ -s "$dest" && "$(date -u -r "$dest" +%Y-%m 2> /dev/null)" == "$this_month" && "${1}" != "force" ]]; then
+            echo -e "${name}.mmdb: already up to date"
+            continue
+        fi
+        tmp="${dest}.tmp.$$"
+        got=""
+        # The new month's file is published during its first days.
+        for month in "$this_month" $last_month; do
+            rm -f "$tmp"
+            if curl -sSfL --retry 3 --retry-delay 3 --connect-timeout 15 --max-time 900 \
+                "https://download.db-ip.com/free/${name}-${month}.mmdb.gz" 2> /dev/null | gzip -dc > "$tmp" 2> /dev/null &&
+                [[ -s "$tmp" ]] && tail -c 131072 "$tmp" | grep -aq 'MaxMind.com'; then
+                got="$month"
+                break
+            fi
+        done
+        if [[ -n "$got" ]] && chmod 644 "$tmp" && mv -f "$tmp" "$dest"; then
+            echo -e "${green}${name}.mmdb: updated (${got})${plain}"
+            # Older releases kept it in bin/; the database folder copy wins now.
+            rm -f "${xui_folder}/bin/${name}.mmdb"
+        else
+            rm -f "$tmp"
+            echo -e "${red}${name}.mmdb: download failed (download.db-ip.com unreachable?)${plain}"
+            failed=1
+        fi
+    done
+    return $failed
+}
+# END LUCX-HOOK
 
 update_geofiles() {
     case "${1}" in
@@ -1316,6 +1378,15 @@ update_geofiles() {
             dat_files=(
                 "geoip_ROSCOM:hydraponique/roscomvpn-geoip"
                 "geosite_ROSCOM:hydraponique/roscomvpn-geosite"
+            )
+            dat_source=""
+            ;;
+        # END LUCX-HOOK
+        # LUCX-HOOK: Geo-Aggregator — dat files live on main (no releases, encoded as file:URL)
+        "GA")
+            dat_files=(
+                "geoip_GA:https://raw.githubusercontent.com/Ground-Zerro/Geo-Aggregator/main/geodat/geoip_GA.dat"
+                "geosite_GA:https://raw.githubusercontent.com/Ground-Zerro/Geo-Aggregator/main/geodat/geosite_GA.dat"
             )
             dat_source=""
             ;;
@@ -1341,10 +1412,16 @@ update_geofiles() {
         local dest="${xui_folder}/bin/${dat}.dat"
         local temp_file="${dest}.tmp.$$"
         rm -f "$temp_file"
+        # LUCX-HOOK: source is either a GitHub repo (releases) or a full URL (GA, raw main branch)
+        if [[ "$src" == https://* ]]; then
+            geo_source_url="$src"
+        else
+            geo_source_url="https://github.com/${src}/releases/latest/download/${remote_file}.dat"
+        fi
         # -z (against the live file, not the temp file) skips the download
         # (server answers 304) when the local copy is already current.
-        http_code=$(curl -sSfLRo "$temp_file" -z "$dest" -w '%{http_code}' \
-            https://github.com/${src}/releases/latest/download/${remote_file}.dat)
+        http_code=$(curl -sSfLRo "$temp_file" -z "$dest" -w '%{http_code}' "$geo_source_url")
+        # END LUCX-HOOK
         if [[ $? -ne 0 ]]; then
             echo -e "${red}${dat}.dat: download failed${plain}"
             rm -f "$temp_file"
@@ -1390,9 +1467,11 @@ update_geo() {
     echo -e "${green}\t1.${plain} Loyalsoldier (geoip.dat, geosite.dat)"
     echo -e "${green}\t2.${plain} chocolate4u (geoip_IR.dat, geosite_IR.dat)"
     echo -e "${green}\t3.${plain} runetfreedom (geoip_RU.dat, geosite_RU.dat)"
-    # LUCX-HOOK: RoscomVPN custom geo menu entry
+    # LUCX-HOOK: RoscomVPN + Geo-Aggregator menu entries; All shifted to 6
     echo -e "${green}\t4.${plain} RoscomVPN (geoip_ROSCOM.dat, geosite_ROSCOM.dat)"
-    echo -e "${green}\t5.${plain} All"
+    echo -e "${green}\t5.${plain} Geo-Aggregator (geoip_GA.dat, geosite_GA.dat)"
+    echo -e "${green}\t6.${plain} All (geo files + IP databases)"
+    echo -e "${green}\t7.${plain} IP databases (DB-IP Lite: provider/country/city in the Devices column)"
     # END LUCX-HOOK
     echo -e "${green}\t0.${plain} Back to Main Menu"
     read -rp "Choose an option: " choice
@@ -1410,12 +1489,22 @@ update_geo() {
         3)
             run_geo_update "runetfreedom datasets" update_geofiles "RU"
             ;;
-        # LUCX-HOOK: RoscomVPN option + All shifted to 5
+        # LUCX-HOOK: RoscomVPN/Geo-Aggregator options; All shifted to 6
         4)
             run_geo_update "RoscomVPN datasets" update_geofiles "ROSCOM"
             ;;
         5)
+            run_geo_update "Geo-Aggregator datasets" update_geofiles "GA"
+            ;;
+        6)
             run_geo_update "geo files" update_all_geofiles
+            ;;
+        7)
+            if update_ipdb; then
+                echo -e "${green}IP databases are up to date; the panel picks them up without a restart.${plain}"
+            else
+                echo -e "${red}Some IP databases could not be updated. Check the errors above.${plain}"
+            fi
             ;;
         # END LUCX-HOOK
         *)
@@ -3619,6 +3708,7 @@ show_usage() {
 │  ${blue}x-ui update${plain}                - Update                           │
 │  ${blue}x-ui update-dev${plain}            - Update to Dev channel (latest)   │
 │  ${blue}x-ui update-all-geofiles${plain}   - Update all geo files             │
+│  ${blue}x-ui update-ipdb${plain}           - Update IP databases (Devices)    │
 │  ${blue}x-ui migrateDB [file]${plain}      - Convert .db <-> .dump (SQLite)   │
 │  ${blue}x-ui pgclient [ver]${plain}        - Upgrade pg_dump/pg_restore tools │
 │  ${blue}x-ui legacy${plain}                - Legacy version                   │
@@ -3668,7 +3758,7 @@ show_menu() {
 │  ${green}25.${plain} PostgreSQL Management                    │
 │────────────────────────────────────────────────│
 │  ${green}26.${plain} Enable BBR                               │
-│  ${green}27.${plain} Update Geo Files                         │
+│  ${green}27.${plain} Update Geo Files & IP DBs                │
 │  ${green}28.${plain} Speedtest by Ookla                       │
 │────────────────────────────────────────────────│
 │  ${green}29.${plain} Install AWG module                       │
@@ -3784,7 +3874,7 @@ show_menu() {
     esac
 }
 
-if [[ $# > 0 ]]; then
+if [[ $# -gt 0 ]]; then
     case $1 in
         "start")
             check_install 0 && start 0
@@ -3840,6 +3930,11 @@ if [[ $# > 0 ]]; then
                 [[ $geo_updated -eq 0 ]] || restart 0
             fi
             ;;
+        # LUCX-HOOK: IP databases only; "force" re-downloads this month's files
+        "update-ipdb")
+            check_install 0 && update_ipdb "$2"
+            ;;
+        # END LUCX-HOOK
         "migrateDB")
             migrate_db "$2" "$3"
             ;;

@@ -127,7 +127,7 @@ jobs:
           cd x-ui/bin
 
           # Download dependencies
-          Xray_URL="https://github.com/XTLS/Xray-core/releases/download/v26.10.10/"
+          Xray_URL="https://github.com/XTLS/Xray-core/releases/download/v26.10.21/"
           if [ "${{ matrix.platform }}" == "amd64" ]; then
             fetch ${Xray_URL}Xray-linux-64.zip
             unzip Xray-linux-64.zip
@@ -213,13 +213,72 @@ jobs:
       - name: Pack tunnel sidecars
         run: bash bin/pack-sidecars.sh ${{ matrix.platform }} "$PWD/x-ui/bin"
 
+      # LUCX-HOOK: pack-sidecars.sh builds anytls only when the file is absent,
+      # so a stale copy would ship without the -fallback overlay (probes on the
+      # AnyTLS domain then get a dropped TLS connection). Text check: works for
+      # the arm64 binary on the amd64 runner too.
+      - name: Check AnyTLS fallback overlay
+        run: |
+          set -euo pipefail
+          BIN="x-ui/bin/anytls-linux-${{ matrix.platform }}"
+          test -s "$BIN"
+          grep -aq 'hand the connection to this plain-TCP address' "$BIN" || {
+            echo "::error::$BIN was built without third_party/patches/anytls-server-inbound_tcp.go.overlay (-fallback)"
+            exit 1
+          }
+          grep -aq 'per-user passwords, one name:password per line' "$BIN" || {
+            echo "::error::$BIN was built without third_party/patches/anytls-server-users.go.overlay (-users-file)"
+            exit 1
+          }
+      # LUCX-HOOK: TrustTunnel behind the SNI gateway needs the PROXY v1 patch
+      # (third_party/patches/trusttunnel-proxy-protocol.patch, bin/build-trusttunnel.sh);
+      # the stock release would hide every client IP. The vendored binary wins
+      # over the download, so a stale copy would ship silently.
+      - name: Check TrustTunnel PROXY patch
+        run: |
+          set -euo pipefail
+          BIN="x-ui/bin/trusttunnel-linux-${{ matrix.platform }}"
+          test -s "$BIN"
+          grep -aq '+lucx.proxy' "$BIN" || {
+            echo "::error::$BIN is the stock TrustTunnel; rebuild it with bin/build-trusttunnel.sh and refresh third_party/sidecars/linux-${{ matrix.platform }}/trusttunnel-linux-${{ matrix.platform }}.gz"
+            exit 1
+          }
+
+      # LUCX-HOOK: wgobfs — Phobos fork of ClusterM wg-obfuscator (GPL-3.0, C).
+      # PIN 22aedefd (reactive bump policy, lucx.309): the fork adds mode=socks5,
+      # MEDIA/TLS masking and socks5-users on top of upstream STUN/AUTO/NONE.
+      # zig (already set up for CSQTT) cross-compiles the musl static build.
+      - name: Build wgobfs (Phobos fork)
+        run: |
+          set -euo pipefail
+          P="${{ matrix.platform }}"
+          case "$P" in
+            amd64) ZT=x86_64-linux-musl ;;
+            arm64) ZT=aarch64-linux-musl ;;
+            *) echo "no wgobfs for $P" >&2; exit 1 ;;
+          esac
+          WGOBFS_PIN=22aedefda053062dc58c036072d2da6e216d5a34
+          rm -rf /tmp/phobos && git init -q /tmp/phobos
+          git -C /tmp/phobos remote add origin https://github.com/Ground-Zerro/Phobos.git
+          git -C /tmp/phobos fetch -q --depth 1 origin "$WGOBFS_PIN"
+          git -C /tmp/phobos checkout -q FETCH_HEAD
+          # clang >=17 (zig) split 512-bit EVEX out of avx512f: widen the
+          # runtime-dispatch attribute so xor_apply_mask_avx512 compiles; the
+          # cpuid dispatch stays intact. GCC builds don't take this path.
+          sed -i 's/target("avx512f")/target("avx512f,evex512")/' /tmp/phobos/src/phobos-obfuscator/obfuscation.h
+          make -C /tmp/phobos/src/phobos-obfuscator -j"$(nproc)" CC="zig cc -target ${ZT}" STATIC=1 ARCH=zig-neutral
+          cp /tmp/phobos/src/phobos-obfuscator/wg-obfuscator "$PWD/x-ui/bin/wgobfs-linux-${P}"
+          chmod +x "$PWD/x-ui/bin/wgobfs-linux-${P}"
+          rm -rf /tmp/phobos
+      # END LUCX-HOOK
+
       - name: Build Telegram WEB proxy sidecars
         run: |
           set -euo pipefail
           DEST="$PWD/x-ui/bin"
           mkdir -p "$DEST"
           P="${{ matrix.platform }}"
-          TPROXY_SHA=acc252ece3a25c29e9b83f608499a5567a33ab2a
+          TPROXY_SHA=c8adb8b7c6b7fc46c12ae3acb68be9070c26a8e8
           rm -rf /tmp/tproxy-src
           mkdir /tmp/tproxy-src
           git -C /tmp/tproxy-src init
@@ -237,6 +296,7 @@ jobs:
           rm -rf /tmp/MTProxy
           mkdir /tmp/MTProxy
           tar -C /tmp/MTProxy --strip-components=1 -xzf /tmp/MTProxy.tar.gz
+          patch -d /tmp/MTProxy -p1 < third_party/patches/mtproxy-secret-file.patch
           docker run --rm --user 0 -v /tmp/MTProxy:/src -w /src ubuntu:22.04 bash -lc \
             'apt-get update -qq && apt-get install -y -qq --no-install-recommends gcc make libssl-dev zlib1g-dev >/dev/null && make -j"$(nproc)"'
           cp /tmp/MTProxy/objs/bin/mtproto-proxy "$DEST/mtproxy-linux-${P}"
@@ -251,7 +311,7 @@ jobs:
           set -euo pipefail
           P="${{ matrix.platform }}"
           : > x-ui/bin/lucx-pins.txt
-          for c in caddy-naive naive-client olcrtc qwdtt csqtt openflux mieru mieru-client trusttunnel trusttunnel-client anytls tproxy caddy-layer4; do
+          for c in caddy-naive naive-client olcrtc telemt mtproto-zig qwdtt csqtt masterdns aivpn openflux mieru mieru-client trusttunnel trusttunnel-client anytls tproxy caddy-layer4 wgobfs; do
             f="x-ui/bin/${c}-linux-${P}"
             [ -x "$f" ] || continue
             echo "${c}-linux-${P} $(sha256sum "$f" | awk '{print $1}')" >> x-ui/bin/lucx-pins.txt
@@ -260,6 +320,43 @@ jobs:
             echo "mtproxy-linux-amd64 $(sha256sum x-ui/bin/mtproxy-linux-amd64 | awk '{print $1}')" >> x-ui/bin/lucx-pins.txt
           fi
           test -s x-ui/bin/lucx-pins.txt
+
+      # GitHub issue #183: a stale vendored core can silently mask the pin
+      # build (pack-sidecars.sh rebuilds only when the file is absent), so the
+      # shipped binary must prove it understands every provider the UI accepts.
+      - name: Smoke-test olcRTC providers
+        run: |
+          set -euo pipefail
+          P="${{ matrix.platform }}"
+          BIN="x-ui/bin/olcrtc-linux-${P}"
+          test -x "$BIN"
+          for provider in jitsi telemost wbstream vkcalls mtslink; do
+            cat > /tmp/olcrtc-smoke.yaml <<EOF
+          mode: srv
+          auth:
+            provider: ${provider}
+          room:
+            id: https://example.com/call/smoke
+          crypto:
+            key: 0000000000000000000000000000000000000000000000000000000000000000
+          net:
+            transport: vp8channel
+          vp8:
+            fps: 30
+            batch_size: 16
+          liveness:
+            interval: 10s
+            timeout: 15s
+            failures: 4
+          debug: false
+          EOF
+            timeout 8 "$BIN" /tmp/olcrtc-smoke.yaml > /tmp/olcrtc-smoke.log 2>&1 || true
+            if grep -q "unsupported provider" /tmp/olcrtc-smoke.log; then
+              echo "::error::olcrtc-linux-${P} rejects provider ${provider} (stale vendored core?)" >&2
+              cat /tmp/olcrtc-smoke.log >&2
+              exit 1
+            fi
+          done
 
       - name: Package
         run: |
@@ -274,7 +371,7 @@ jobs:
           for f in x-ui/x-ui x-ui/x-ui.sh "x-ui/bin/xray-linux-${P}" "x-ui/bin/mtg-linux-${P}" x-ui/bin/install-awg-module.sh x-ui/bin/lucx-acme.sh x-ui/bin/lucx-pins.txt; do
             grep -Fxq "$f" /tmp/list || { echo "missing $f"; exit 1; }
           done
-          for c in caddy-naive naive-client olcrtc qwdtt csqtt openflux mieru mieru-client trusttunnel trusttunnel-client anytls tproxy caddy-layer4; do
+          for c in caddy-naive naive-client olcrtc qwdtt csqtt openflux mieru mieru-client trusttunnel trusttunnel-client anytls tproxy caddy-layer4 telemt mtproto-zig wgobfs; do
             grep -Fxq "x-ui/bin/${c}-linux-${P}" /tmp/list || { echo "missing ${c}-linux-${P}"; exit 1; }
           done
           if [ "$P" = amd64 ]; then
@@ -372,6 +469,11 @@ jobs:
           go version
           gcc --version
 
+          # Version info + manifest resource: a bare stripped Go exe scores high on AV heuristics.
+          PANEL_VERSION=$(tr -d '[:space:]' < internal/config/version)
+          go run github.com/tc-hib/go-winres@v0.3.3 make --arch amd64 \
+            --product-version "$PANEL_VERSION" --file-version "$PANEL_VERSION"
+
           # Stamp the commit into per-commit (dev channel) builds only.
           LDFLAGS="-w -s"
           if [[ "$GITHUB_REF" != refs/tags/* ]]; then
@@ -384,12 +486,12 @@ jobs:
         run: |
           $retry = @{ MaximumRetryCount = 5; RetryIntervalSec = 10 }
           mkdir x-ui
-          Copy-Item xui-release.exe x-ui\x-ui.exe
+          Copy-Item xui-release.exe x-ui\3x-ui.exe
           mkdir x-ui\bin
           cd x-ui\bin
 
           # Download Xray for Windows
-          $Xray_URL = "https://github.com/XTLS/Xray-core/releases/download/v26.10.10/"
+          $Xray_URL = "https://github.com/XTLS/Xray-core/releases/download/v26.10.21/"
           Invoke-WebRequest @retry -Uri "${Xray_URL}Xray-windows-64.zip" -OutFile "Xray-windows-64.zip"
           Expand-Archive -Path "Xray-windows-64.zip" -DestinationPath .
           Remove-Item "Xray-windows-64.zip"

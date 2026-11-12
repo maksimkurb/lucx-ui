@@ -31,13 +31,15 @@ const PROTOCOL_LABELS: Record<string, string> = {
   tg: 'MTProto',
   vpn: 'AmneziaWG',
   amneziawg: 'AmneziaWG',
-  awg: 'AmneziaWG (kernel)',
+  awg: 'AmneziaWG (LucX)',
   tuic: 'TUIC',
   // LUCX-HOOK: tunnel / AWG share schemes
   naive: 'Naive',
   olcrtc: 'olcRTC',
   qwdtt: 'qWDTT',
   csqtt: 'CSQTT',
+  masterdns: 'MasterDnsVPN', // LUCX-HOOK: masterdns:// client-config wrapper
+  aivpn: 'AIVPN', // LUCX-HOOK: aivpn:// connection key
   openflux: 'OpenFlux',
   wdtt: 'qWDTT',
   mieru: 'mieru',
@@ -57,11 +59,12 @@ const PROTOCOL_COLORS: Record<string, string> = {
   WireGuard: 'cyan',
   MTProto: 'blue',
   AmneziaWG: 'yellow',
-  'AmneziaWG (kernel)': 'yellow',
+  'AmneziaWG (LucX)': 'yellow',
   TUIC: 'orange',
   Naive: 'orange',
   olcRTC: 'cyan',
   qWDTT: 'gold',
+  MasterDnsVPN: 'green', // LUCX-HOOK: masterdns://
   mieru: 'geekblue',
   TrustTunnel: 'purple',
   AnyTLS: 'gold',
@@ -141,6 +144,7 @@ export function parseLinkParts(link: string): LinkParts | null {
 
   const baseScheme = scheme.includes('+') ? scheme.split('+')[0] : scheme;
   const protocol =
+    (/^https:\/\/t\.me\/webproxy\?/i.test(trimmed) ? PROTOCOL_LABELS.webproxy : undefined) ??
     PROTOCOL_LABELS[baseScheme] ??
     PROTOCOL_LABELS[scheme] ??
     scheme.charAt(0).toUpperCase() + scheme.slice(1);

@@ -8,6 +8,8 @@ package lucx
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -25,8 +27,12 @@ var GeodataAssets = []GeodataAsset{
 	{"https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geosite.dat", "geosite_IR.dat"},
 	{"https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat", "geoip_RU.dat"},
 	{"https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat", "geosite_RU.dat"},
+	// RoscomVPN custom geo (RKN geoblock lists)
 	{"https://github.com/hydraponique/roscomvpn-geoip/releases/latest/download/geoip.dat", "geoip_ROSCOM.dat"},
 	{"https://github.com/hydraponique/roscomvpn-geosite/releases/latest/download/geosite.dat", "geosite_ROSCOM.dat"},
+	// Geo-Aggregator (Ground-Zerro) — RU blocklist aggregate, published on main
+	{"https://raw.githubusercontent.com/Ground-Zerro/Geo-Aggregator/main/geodat/geoip_GA.dat", "geoip_GA.dat"},
+	{"https://raw.githubusercontent.com/Ground-Zerro/Geo-Aggregator/main/geodat/geosite_GA.dat", "geosite_GA.dat"},
 }
 
 func geodataAssetMaps() []map[string]any {
@@ -115,4 +121,50 @@ func ApplyGeodata(raw string) (string, bool, error) {
 	cfg["geodata"] = geo
 	out, err := json.MarshalIndent(cfg, "", "  ")
 	return string(out) + "\n", true, err
+}
+
+// SanitizeGeodataAssets filters the geodata block's assets down to files present
+// in binFolder. The Xray core validates asset presence while building the config
+// and exits on the first missing one, so a stock entry whose fetch failed
+// (blocked host, slow link — lucx.305 GA report) must not keep the core down;
+// the saved template keeps the entry and the next build restores it once the
+// file is provisioned. Invalid input passes through untouched.
+func SanitizeGeodataAssets(raw []byte, binFolder string) []byte {
+	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" {
+		return raw
+	}
+	var geo map[string]any
+	if err := json.Unmarshal(raw, &geo); err != nil {
+		return raw
+	}
+	assets, ok := geo["assets"].([]any)
+	if !ok {
+		return raw
+	}
+	kept := make([]any, 0, len(assets))
+	for _, item := range assets {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			kept = append(kept, item)
+			continue
+		}
+		file, _ := obj["file"].(string)
+		if file == "" || exists(filepath.Join(binFolder, file)) {
+			kept = append(kept, item)
+		}
+	}
+	if len(kept) == len(assets) {
+		return raw
+	}
+	geo["assets"] = kept
+	out, err := json.Marshal(geo)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+func exists(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && !st.IsDir()
 }

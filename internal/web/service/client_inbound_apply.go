@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/amneziawg"
+	"github.com/mhsanaei/3x-ui/v3/internal/amneziawgkern"
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
@@ -27,6 +29,45 @@ func droppedClientNeedsRestart() bool {
 		logger.Warning("get RestartXrayOnClientDisable failed:", err)
 	}
 	return on
+}
+
+func validateAmneziaWGClientWrite(inbound *model.Inbound, clients []model.Client) error {
+	if inbound.Protocol != model.AmneziaWG {
+		return nil
+	}
+	var settings amneziawg.InboundSettings
+	if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
+		return fmt.Errorf("amneziawg: invalid settings: %w", err)
+	}
+	for _, client := range clients {
+		for _, value := range []struct{ field, value string }{
+			{"email", client.Email},
+			{"publicKey", client.PublicKey},
+			{"preSharedKey", client.PreSharedKey},
+		} {
+			if err := amneziawg.ValidateConfigValue(value.field, value.value); err != nil {
+				return fmt.Errorf("amneziawg: client %q: %w", client.Email, err)
+			}
+		}
+		for _, allowedIP := range client.AllowedIPs {
+			if err := amneziawg.ValidateConfigValue("allowedIPs", allowedIP); err != nil {
+				return fmt.Errorf("amneziawg: client %q: %w", client.Email, err)
+			}
+		}
+	}
+	if settings.Server == nil || !settings.Server.KernelMode {
+		return nil
+	}
+	inst := amneziawg.Instance{Listen: inbound.Listen, IPv6Enabled: settings.Server.IPv6Enabled}
+	for _, client := range clients {
+		inst.Peers = append(inst.Peers, amneziawg.Peer{
+			AllowedIPs: client.AllowedIPs, ForwardedPorts: client.ForwardedPorts,
+		})
+	}
+	if err := amneziawgkern.ValidateInstanceFeatures(inst, settings.Server.RouteThroughXray); err != nil {
+		return err
+	}
+	return nil
 }
 
 func sameClientConfigExceptUpdatedAt(a, b map[string]any) bool {
@@ -59,6 +100,7 @@ func advancePushedInbound(rt runtime.Runtime, prevSettings, pushedSettings strin
 // semantics of DelInboundClientByEmail for each removed client. needRestart is
 // the OR across all removals.
 func (s *ClientService) delInboundClients(inboundSvc *InboundService, inboundId int, recs []*model.ClientRecord, keepTraffic bool) (bool, error) {
+	defer InvalidateSubData()
 	if len(recs) == 0 {
 		return false, nil
 	}
@@ -335,6 +377,8 @@ func (s *ClientService) checkEmailsExistForClients(inboundSvc *InboundService, c
 }
 
 func (s *ClientService) AddInboundClient(inboundSvc *InboundService, data *model.Inbound) (bool, error) {
+	defer InvalidateSubData()
+	defer TriggerCsqttMemberSync()
 	defer lockInbound(data.Id).Unlock()
 
 	clients, err := inboundSvc.GetClients(data)
@@ -342,6 +386,17 @@ func (s *ClientService) AddInboundClient(inboundSvc *InboundService, data *model
 		return false, err
 	}
 	if err := validateClientsRenewal(clients); err != nil {
+		return false, err
+	}
+	inbound, err := inboundSvc.GetInbound(data.Id)
+	if err != nil {
+		return false, err
+	}
+	existingClients, err := inboundSvc.GetClients(inbound)
+	if err != nil {
+		return false, err
+	}
+	if err := validateClientsKeepAliveAgainstExisting(inbound.Protocol, clients, existingClients); err != nil {
 		return false, err
 	}
 
@@ -378,9 +433,7 @@ func (s *ClientService) AddInboundClient(inboundSvc *InboundService, data *model
 	if err != nil {
 		return false, err
 	}
-
-	existingClients, err := inboundSvc.GetClients(oldInbound)
-	if err != nil {
+	if err := validateTuicClientEmails(oldInbound.Protocol, clients); err != nil {
 		return false, err
 	}
 
@@ -449,6 +502,9 @@ func (s *ClientService) AddInboundClient(inboundSvc *InboundService, data *model
 		}
 	}
 	// END LUCX-HOOK
+	if err := validateAmneziaWGClientWrite(oldInbound, clients); err != nil {
+		return false, err
+	}
 
 	var portCtx portConflictContext
 	if oldInbound.Protocol == model.AmneziaWG {
@@ -478,7 +534,7 @@ func (s *ClientService) AddInboundClient(inboundSvc *InboundService, data *model
 			if client.PublicKey == "" {
 				return false, common.NewError("wireguard client requires a key")
 			}
-		case "awg", "naive", "olcrtc", "qwdtt", "csqtt", "openflux", "mieru", "trusttunnel", "anytls", "tproxy", "cover", "gateway":
+		case "awg", "naive", "olcrtc", "qwdtt", "csqtt", "masterdns", "aivpn", "openflux", "mieru", "trusttunnel", "anytls", "tproxy", "cover", "gateway":
 		case "mtproto":
 			if client.Secret == "" {
 				return false, common.NewError("mtproto client requires a secret")
@@ -611,6 +667,10 @@ func (s *ClientService) AddInboundClient(inboundSvc *InboundService, data *model
 			inboundSvc.applyLocalAmneziaWG(oldInbound.Id)
 		} else if oldInbound.Protocol == model.Naive {
 			inboundSvc.applyLocalNaive(oldInbound.Id)
+		} else if isKernelWireguardInbound(oldInbound) {
+			// LUCX-HOOK: peer revocation applies immediately without restarting Xray.
+			inboundSvc.applyLocalKernelWireguard(oldInbound.Id)
+			// END LUCX-HOOK
 		} else if oldInbound.Protocol == model.AWG {
 			inboundSvc.applyLocalAwg(oldInbound.Id)
 		} else if oldInbound.Protocol == model.TUIC {
@@ -683,6 +743,8 @@ func (s *ClientService) AddInboundClient(inboundSvc *InboundService, data *model
 }
 
 func (s *ClientService) UpdateInboundClient(inboundSvc *InboundService, data *model.Inbound, oldEmail string) (bool, error) {
+	defer InvalidateSubData()
+	defer TriggerCsqttMemberSync()
 	defer lockInbound(data.Id).Unlock()
 
 	clients, err := inboundSvc.GetClients(data)
@@ -692,7 +754,10 @@ func (s *ClientService) UpdateInboundClient(inboundSvc *InboundService, data *mo
 	if err := validateClientsRenewal(clients); err != nil {
 		return false, err
 	}
-
+	inbound, err := inboundSvc.GetInbound(data.Id)
+	if err != nil {
+		return false, err
+	}
 	var settings map[string]any
 	err = json.Unmarshal([]byte(data.Settings), &settings)
 	if err != nil {
@@ -703,6 +768,9 @@ func (s *ClientService) UpdateInboundClient(inboundSvc *InboundService, data *mo
 
 	oldInbound, err := inboundSvc.GetInbound(data.Id)
 	if err != nil {
+		return false, err
+	}
+	if err := validateTuicClientEmails(oldInbound.Protocol, clients); err != nil {
 		return false, err
 	}
 
@@ -743,6 +811,15 @@ func (s *ClientService) UpdateInboundClient(inboundSvc *InboundService, data *mo
 	if err != nil {
 		return false, err
 	}
+	for i, client := range clients {
+		identityEmail := client.Email
+		if i == 0 {
+			identityEmail = oldEmail
+		}
+		if err := validateClientKeepAliveAgainstExisting(inbound.Protocol, client, oldClients, identityEmail); err != nil {
+			return false, fmt.Errorf("client %q: %w", client.Email, err)
+		}
+	}
 
 	newClientId := ""
 	switch oldInbound.Protocol {
@@ -752,7 +829,7 @@ func (s *ClientService) UpdateInboundClient(inboundSvc *InboundService, data *mo
 		newClientId = clients[0].Email
 	case "hysteria":
 		newClientId = clients[0].Auth
-	case "wireguard", "amneziawg", "awg", "naive", "olcrtc", "qwdtt", "csqtt", "openflux", "mieru", "trusttunnel", "anytls", "tproxy", "cover", "gateway":
+	case "wireguard", "amneziawg", "awg", "naive", "olcrtc", "qwdtt", "csqtt", "masterdns", "aivpn", "openflux", "mieru", "trusttunnel", "anytls", "tproxy", "cover", "gateway":
 		newClientId = clients[0].Email
 	case "mtproto":
 		newClientId = clients[0].Email
@@ -829,7 +906,7 @@ func (s *ClientService) UpdateInboundClient(inboundSvc *InboundService, data *mo
 		if clients[0].PreSharedKey == "" {
 			clients[0].PreSharedKey = old.PreSharedKey
 		}
-		if clients[0].KeepAlive == "" {
+		if clients[0].KeepAlive == nil {
 			clients[0].KeepAlive = old.KeepAlive
 		}
 		// ForwardedPorts is not a WireGuard field. A partial edit that omits
@@ -837,6 +914,10 @@ func (s *ClientService) UpdateInboundClient(inboundSvc *InboundService, data *mo
 		if portForwardProtocol(oldInbound.Protocol) && clients[0].ForwardedPorts == "" {
 			clients[0].ForwardedPorts = old.ForwardedPorts
 		}
+	}
+	// AWG client-set write validation (upstream 3.11).
+	if err := validateAmneziaWGClientWrite(oldInbound, clients); err != nil {
+		return false, err
 	}
 	if portForwardProtocol(oldInbound.Protocol) {
 		portCtx, err := inboundSvc.loadPortConflictContext(database.GetDB(), oldInbound.NodeID)
@@ -893,8 +974,9 @@ func (s *ClientService) UpdateInboundClient(inboundSvc *InboundService, data *mo
 				if clients[0].PreSharedKey != "" {
 					newMap["preSharedKey"] = clients[0].PreSharedKey
 				}
-				if s := keepAliveStr(clients[0].KeepAlive); s != "" {
-					newMap["keepAlive"] = s
+				// Upstream 3.11: the pointer carries intent; nil keeps the stored value.
+				if clients[0].KeepAlive != nil {
+					newMap["keepAlive"] = clients[0].KeepAlive
 				}
 				if portForwardProtocol(oldInbound.Protocol) && clients[0].ForwardedPorts != "" {
 					newMap["forwardedPorts"] = clients[0].ForwardedPorts
@@ -1080,6 +1162,10 @@ func (s *ClientService) UpdateInboundClient(inboundSvc *InboundService, data *mo
 				inboundSvc.applyLocalAmneziaWG(oldInbound.Id)
 			} else if oldInbound.Protocol == model.Naive {
 				inboundSvc.applyLocalNaive(oldInbound.Id)
+			} else if isKernelWireguardInbound(oldInbound) {
+				// LUCX-HOOK: peer revocation applies immediately without restarting Xray.
+				inboundSvc.applyLocalKernelWireguard(oldInbound.Id)
+				// END LUCX-HOOK
 			} else if oldInbound.Protocol == model.AWG {
 				inboundSvc.applyLocalAwg(oldInbound.Id)
 			} else if oldInbound.Protocol == model.TUIC {
@@ -1147,6 +1233,8 @@ func (s *ClientService) UpdateInboundClient(inboundSvc *InboundService, data *mo
 }
 
 func (s *ClientService) DelInboundClientByEmail(inboundSvc *InboundService, inboundId int, email string, keepTraffic bool, fullDelete bool) (bool, error) {
+	defer InvalidateSubData()
+	defer TriggerCsqttMemberSync()
 	defer lockInbound(inboundId).Unlock()
 
 	oldInbound, err := inboundSvc.GetInbound(inboundId)
@@ -1280,6 +1368,10 @@ func (s *ClientService) DelInboundClientByEmail(inboundSvc *InboundService, inbo
 				inboundSvc.applyLocalAmneziaWG(oldInbound.Id)
 			} else if oldInbound.Protocol == model.Naive {
 				inboundSvc.applyLocalNaive(oldInbound.Id)
+			} else if isKernelWireguardInbound(oldInbound) {
+				// LUCX-HOOK: peer revocation applies immediately without restarting Xray.
+				inboundSvc.applyLocalKernelWireguard(oldInbound.Id)
+				// END LUCX-HOOK
 			} else if oldInbound.Protocol == model.AWG {
 				inboundSvc.applyLocalAwg(oldInbound.Id)
 			} else if oldInbound.Protocol == model.TUIC {

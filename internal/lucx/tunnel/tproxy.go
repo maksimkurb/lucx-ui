@@ -58,6 +58,7 @@ type TproxyConfig struct {
 	OutboundTag      string `json:"outboundTag"`
 	ExternalTLS      bool   `json:"externalTLS"`
 	BehindCover      bool   `json:"behindCover"`
+	Backend          string `json:"backend"` // legacy | mtproto-zig
 }
 
 func DefaultTproxyConfig() TproxyConfig {
@@ -77,6 +78,9 @@ func (c TproxyConfig) Merge() TproxyConfig {
 	c.Hostname = strings.ToLower(strings.TrimSpace(c.Hostname))
 	c.Secret = strings.ToLower(strings.TrimSpace(c.Secret))
 	c.CarrierMode = strings.ToLower(strings.TrimSpace(c.CarrierMode))
+	if c.Backend == "" {
+		c.Backend = "legacy"
+	}
 	return c
 }
 
@@ -244,9 +248,8 @@ func writeTproxySite(b *strings.Builder, hostname string, port int, cert, key st
 		b.WriteString(caddyToken(key))
 		b.WriteString("\n")
 	}
-	b.WriteString("\tencode zstd gzip\n")
-	b.WriteString("\theader -Via\n")
-	b.WriteString("\theader Server nginx\n")
+	writeSiteEncode(b, panel, "\t")
+	writeSiteHeaders(b, "\t")
 	writeHTTPPanelRoutes(b, panel, "\t")
 	if naive != nil {
 		b.WriteString("\troute {\n")
